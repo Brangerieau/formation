@@ -3,12 +3,14 @@
 namespace App\Chat;
 
 use App\Mcp\McpClient;
+use App\Rag\DocIndex;
 use Monolog\Attribute\WithMonologChannel;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Twig\Attribute\AsTwigFunction;
 
@@ -20,6 +22,9 @@ use Twig\Attribute\AsTwigFunction;
  * Destructive MCP tools (deletes, changes) wait for the user to confirm them in the widget, one at a time,
  * and are then run as stored, not asked again to the LLM: a small model may otherwise claim it did it without calling the tool.
  * The other tools run freely.
+ *
+ * The documentation section closest to the user's message is added to the system prompt when it is close enough:
+ * a small model doesn't always think of the search tool.
  */
 #[WithMonologChannel('chat')]
 class ChatBot
@@ -32,10 +37,14 @@ class ChatBot
     private const string PENDING = 'En attente de confirmation par l\'utilisateur.';
     private const string SKIPPED = 'Non exécuté : une seule action à la fois attend la confirmation de l\'utilisateur.';
     private const string CANCELLED = 'Annulé par l\'utilisateur : ne refais pas cette action et n\'en propose pas d\'autre, sauf s\'il le redemande.';
+    // ponytail: measured on a few messages with bge-m3, forum actions ("supprime le sujet...") score up to 0.53 against the
+    // technical doc. Tune it with the scores logged in chat.log; a lower value adds unrelated sections, slow to read on CPU.
+    private const float DOC_MIN_SCORE = 0.55;
 
     public function __construct(
         private HttpClientInterface $ollamaClient,
         private McpClient $mcp,
+        private DocIndex $docs,
         private RequestStack $requestStack,
         private CacheItemPoolInterface $cache,
         private LoggerInterface $logger,
@@ -60,7 +69,7 @@ class ChatBot
         $history = $conversation->get() ?? [];
         $cancelled = $this->cancelPending($history);
 
-        return $this->converse($conversation, [...$history, ['role' => 'user', 'content' => $message]], $cancelled);
+        return $this->converse($conversation, [...$history, ['role' => 'user', 'content' => $message]], $cancelled, documentation: $this->documentation($message));
     }
 
     /**
@@ -111,9 +120,10 @@ class ChatBot
 
     /**
      * @param array|null $cancelled a call cancelled by this message, shown again with its new status
-     * @param int|null   $confirmed index in $history of the confirmed call to run first
+     * @param int|null   $confirmed     index in $history of the confirmed call to run first
+     * @param string     $documentation added to the system prompt for this message only, not kept in the history
      */
-    private function converse(CacheItemInterface $conversation, array $history, ?array $cancelled = null, ?int $confirmed = null): \Generator
+    private function converse(CacheItemInterface $conversation, array $history, ?array $cancelled = null, ?int $confirmed = null, string $documentation = ''): \Generator
     {
         $start = microtime(true);
         if (null !== $cancelled) {
@@ -142,7 +152,7 @@ class ChatBot
 
         $pending = false;
         for ($round = 1; ; ++$round) {
-            $answer = yield from $this->complete($history, self::MAX_ROUNDS === $round ? [] : $definitions);
+            $answer = yield from $this->complete($history, self::MAX_ROUNDS === $round ? [] : $definitions, $documentation);
             if (!($answer['tool_calls'] ?? [])) {
                 break;
             }
@@ -247,6 +257,29 @@ class ChatBot
         return $history[$index];
     }
 
+    /**
+     * @return string the closest documentation section, as an addition to the system prompt; empty when none is close enough
+     */
+    private function documentation(string $message): string
+    {
+        try {
+            $section = $this->docs->search($message, 1)[0] ?? null;
+        } catch (ExceptionInterface $e) {
+            // Qdrant down or docs not indexed: the chatbot still works, without the docs.
+            $this->logger->warning('Documentation indisponible', ['error' => $e->getMessage()]);
+
+            return '';
+        }
+
+        $added = null !== $section && $section['score'] >= self::DOC_MIN_SCORE;
+        $this->logger->info('Documentation', ['section' => $section['title'] ?? null, 'score' => round($section['score'] ?? 0, 3), 'added' => $added]);
+
+        return $added
+            // Without "don't call", the prompt above would have the model search again: one more LLM round.
+            ? \sprintf("\n\nSection de la documentation déjà trouvée pour le dernier message. Si elle y répond, réponds directement à partir d'elle, sans appeler get_api_doc_search ; sinon, ignore-la.\n\n## %s\n\n%s", $section['title'], $section['content'])
+            : '';
+    }
+
     private function cacheKey(string $conversationId): string
     {
         return 'chat_history_'.$conversationId;
@@ -256,12 +289,12 @@ class ChatBot
      * @return \Generator<array{type: 'delta', content: string}, mixed, mixed, array> the answer as it is written,
      *                                                                              returning the assistant message
      */
-    private function complete(array $history, array $tools = []): \Generator
+    private function complete(array $history, array $tools = [], string $documentation = ''): \Generator
     {
         $response = $this->ollamaClient->request('POST', '/v1/chat/completions', ['json' => [
             'model' => $this->model,
             'messages' => [
-                ['role' => 'system', 'content' => $this->systemPrompt],
+                ['role' => 'system', 'content' => $this->systemPrompt.$documentation],
                 ...array_map(fn (array $message) => array_diff_key($message, ['display' => true, 'tool_call' => true]), $history),
             ],
             'stream' => true,

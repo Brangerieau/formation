@@ -17,6 +17,12 @@ class ChatControllerTest extends WebTestCase
     /** @var list<string> X-Trace-Id header of each request to the mocked MCP server */
     private array $mcpTraceIds = [];
 
+    /** @var list<array>|null points returned by the mocked Qdrant, null for a 404 (docs not indexed) */
+    private ?array $docPoints = [];
+
+    /** @var list<array> bodies of the Qdrant queries */
+    private array $docQueries = [];
+
     public function testConversationIsSentToTheLlmUntilReset(): void
     {
         $llmResponses = [$this->llmReply('Sal', "ut\n", ' !'), $this->llmReply('Rien de neuf.'), $this->llmReply('Re !')];
@@ -248,6 +254,45 @@ class ChatControllerTest extends WebTestCase
         self::assertSame('Erreur : arguments JSON invalides.', $this->sentMessages($llmResponses[1])[3]['content']);
     }
 
+    public function testCloseDocumentationSectionIsAddedWhileAnsweringTheMessage(): void
+    {
+        $llmResponses = [
+            $this->llmToolCalls(['call_1' => ['get_api_category_list', '{}']]),
+            $this->llmReply('Ouvrez le sujet puis remplissez le formulaire.'),
+            $this->llmReply('De rien.'),
+        ];
+        $client = $this->createChatClient($llmResponses);
+        $systemPrompt = static::getContainer()->getParameter('app.chat.system_prompt');
+        $this->docPoints = [['id' => 1, 'score' => 0.71, 'payload' => ['source' => 'utilisation.md', 'title' => 'Guide > Répondre', 'content' => 'Remplissez le formulaire.']]];
+
+        $this->chat($client, 'Comment répondre à un sujet ?');
+        // Only the best section is asked for, for the user's message.
+        self::assertSame(1, $this->docQueries[0]['limit']);
+        // In every LLM call answering this message, tool rounds included.
+        foreach (\array_slice($llmResponses, 0, 2) as $response) {
+            $system = $this->sentMessages($response)[0]['content'];
+            self::assertStringStartsWith($systemPrompt, $system);
+            self::assertStringEndsWith("## Guide > Répondre\n\nRemplissez le formulaire.", $system);
+        }
+
+        // Not kept for the next message, whose section is too far.
+        $this->docPoints[0]['score'] = 0.54;
+        $this->chat($client, 'Merci');
+        $messages = $this->sentMessages($llmResponses[2]);
+        self::assertSame($systemPrompt, $messages[0]['content']);
+        self::assertSame(['system', 'user', 'assistant', 'tool', 'assistant', 'user'], array_column($messages, 'role'));
+    }
+
+    public function testChatWorksWithoutTheDocumentationIndex(): void
+    {
+        $llmResponses = [$this->llmReply('Bonjour !')];
+        $client = $this->createChatClient($llmResponses);
+        $this->docPoints = null;
+
+        self::assertSame([['delta', 'Bonjour !'], ['done', '']], $this->chat($client, 'Bonjour'));
+        self::assertSame(static::getContainer()->getParameter('app.chat.system_prompt'), $this->sentMessages($llmResponses[0])[0]['content']);
+    }
+
     public function testInvalidMessageReturns422(): void
     {
         $client = static::createClient();
@@ -265,7 +310,19 @@ class ChatControllerTest extends WebTestCase
         $client = static::createClient();
         // The mocks are set on this kernel: a reboot between requests would bring the real clients back.
         $client->disableReboot();
-        static::getContainer()->set('ollama.client', new MockHttpClient($llmResponses));
+        // The embeddings of the documentation search go through the same client as the LLM calls.
+        static::getContainer()->set('ollama.client', new MockHttpClient(function (string $method, string $url) use (&$llmResponses) {
+            return str_ends_with($url, '/v1/embeddings')
+                ? new JsonMockResponse(['data' => [['embedding' => [0.1, 0.2]]]])
+                : array_shift($llmResponses);
+        }));
+        static::getContainer()->set('qdrant.client', new MockHttpClient(function (string $method, string $url, array $options) {
+            $this->docQueries[] = json_decode($options['body'], true);
+
+            return null === $this->docPoints
+                ? new JsonMockResponse(['status' => ['error' => 'Not found: Collection `docs` doesn\'t exist!']], ['http_code' => 404])
+                : new JsonMockResponse(['result' => ['points' => $this->docPoints], 'status' => 'ok']);
+        }));
         static::getContainer()->set('mcp.client', new MockHttpClient(function (string $method, string $url, array $options) {
             $rpc = json_decode($options['body'], true);
             $this->mcpTraceIds[] = $options['normalized_headers']['x-trace-id'][0] ?? '';

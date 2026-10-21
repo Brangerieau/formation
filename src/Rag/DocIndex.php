@@ -54,9 +54,11 @@ class DocIndex
     }
 
     /**
+     * @param int $limit few by default: the sections go into the LLM context, which is slow to read on CPU
+     *
      * @return list<array{source: string, title: string, content: string, score: float}> the closest sections, best first
      */
-    public function search(string $query, int $limit = 5): array
+    public function search(string $query, int $limit = 3): array
     {
         $result = $this->qdrant('POST', '/collections/'.self::COLLECTION.'/points/query', [
             'query' => $this->embed($query),

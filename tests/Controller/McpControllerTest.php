@@ -46,6 +46,7 @@ class McpControllerTest extends WebTestCase
             'post_api_topic_create',
             'get_api_topic_show',
             'post_api_post_create',
+            'get_api_doc_search',
             'delete_category',
             'delete_topic',
             'delete_post',
@@ -59,6 +60,12 @@ class McpControllerTest extends WebTestCase
         self::assertSame(150, $createTopic['inputSchema']['properties']['title']['maxLength']);
         self::assertSame(['readOnlyHint' => false, 'destructiveHint' => false], $createTopic['annotations']);
         self::assertTrue($tools['get_api_category_list']['annotations']['readOnlyHint']);
+
+        // The docs search is read-only: the chatbot runs it without asking.
+        // No limit for the model to raise: each section it reads costs seconds on CPU.
+        self::assertSame(['q'], array_keys((array) $tools['get_api_doc_search']['inputSchema']['properties']));
+        self::assertSame(['q'], $tools['get_api_doc_search']['inputSchema']['required']);
+        self::assertSame(['readOnlyHint' => true, 'destructiveHint' => false], $tools['get_api_doc_search']['annotations']);
     }
 
     public function testOperationsAreDestructiveOnlyWhenTheyDeclareIt(): void

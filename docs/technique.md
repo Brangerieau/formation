@@ -176,6 +176,7 @@ Toutes les routes sont préfixées par `/api`, en JSON, `{id}` limité aux chiff
 | DELETE | `/api/categories/{id}` | `delete_api_category_delete` | 204 / 404 |
 | DELETE | `/api/topics/{id}` | `delete_api_topic_delete` | 204 / 404 |
 | DELETE | `/api/posts/{id}` | `delete_api_post_delete` | 204 / 404 |
+| GET | `/api/docs/search?q=...` | `get_api_doc_search` | 200, sections de la documentation (voir [RAG](#rag-sur-la-documentation)) / 422 |
 
 Documentation interactive : http://localhost:8090/api/doc (Swagger UI), spécification brute : `/api/doc.json`.
 
@@ -305,7 +306,10 @@ Statuts affichés sur les cartes : `ok`, `erreur`, `à confirmer`, `non exécut�
 
 Les fichiers `docs/*.md` sont indexés dans la collection Qdrant `docs` pour être retrouvés par sens et non par mots-clés. La base de données du forum n'est pas indexée.
 
-Pour l'instant, seules l'indexation et la recherche existent. L'exposition à l'assistant sous forme d'outil MCP est prévue dans un second temps : une route `GET /api/search` appelant `DocIndex::search()` suffira, car `ApiToolRegistry` transforme toute route de l'API en outil MCP.
+L'assistant accède à la documentation de deux façons (mode hybride) :
+
+- **Outil MCP** : la recherche est exposée par la route `GET /api/docs/search` (`DocApiController`), donc automatiquement comme outil `get_api_doc_search` (lecture seule : l'assistant l'exécute sans confirmation). Le prompt système demande au modèle de l'appeler pour toute question sur l'utilisation ou le fonctionnement du forum, ou sur l'assistant lui-même.
+- **Injection automatique** : voir [plus bas](#injection-automatique).
 
 ### Indexation
 
@@ -328,7 +332,25 @@ L'index n'est jamais mis à jour automatiquement : il faut relancer la commande 
 php bin/console app:rag:search "comment répondre à un sujet ?" --limit=3
 ```
 
+Paramètre de la route : `q` (obligatoire, 500 caractères max). Elle renvoie toujours les 3 meilleures sections : le nombre n'est pas exposé, car le modèle prenait le maximum et chaque section relue coûte plusieurs secondes sur CPU. Le JSON est renvoyé sans échappement des accents : il part tel quel dans le contexte du LLM.
+
 `DocIndex::search($query, $limit)` embarque la question avec le même modèle et interroge `POST /collections/docs/points/query`. Elle renvoie les sections les plus proches, triées par score décroissant (similarité cosinus) : `source`, `title`, `content`, `score`.
+
+### Injection automatique
+
+À chaque message de l'utilisateur, `ChatBot` cherche la section de documentation la plus proche (`DocIndex::search($message, 1)`). Si son score atteint `ChatBot::DOC_MIN_SCORE` (0,55), elle est ajoutée à la fin du prompt système pour tous les appels au LLM qui répondent à ce message, tours d'outils compris. Elle n'est pas conservée dans l'historique : le message suivant fait sa propre recherche.
+
+Le seuil a été choisi sur des mesures avec `bge-m3` :
+
+| Type de message | Meilleur score observé |
+|---|---|
+| Politesse (« Bonjour », « Merci ») | 0,36 à 0,43 |
+| Action sur le forum (« Liste les catégories », « Supprime le sujet... ») | 0,50 à 0,53 |
+| Question sur la doc | 0,535 à 0,71 |
+
+Les deux derniers groupes se chevauchent : la doc technique décrit justement les actions sur le forum. Un seuil plus bas ajouterait une section hors sujet à presque chaque action, coûteuse à relire sur CPU. Les questions sous le seuil reposent sur l'outil MCP. Chaque recherche est journalisée dans `var/log/chat.log` (`Documentation`, avec la section, le score et `added`) pour ajuster le seuil.
+
+Si Qdrant est indisponible ou si l'index n'existe pas, un warning est journalisé et l'assistant répond sans documentation.
 
 ## Logs et traçabilité
 
@@ -350,9 +372,10 @@ docker compose exec --user=www-data app php bin/phpunit
 |---|---|
 | `tests/Controller/Api/ForumApiControllerTest.php` | Création et lecture, suppression en cascade, 404, 422, Swagger |
 | `tests/Controller/McpControllerTest.php` | Handshake, liste des outils, annotations, appels, suppressions par nom, erreurs, contrôle de l'`Origin` |
-| `tests/Controller/ChatControllerTest.php` | Historique, flux SSE, boucle d'outils, confirmation et annulation, échec du LLM, arguments invalides |
+| `tests/Controller/ChatControllerTest.php` | Historique, flux SSE, boucle d'outils, confirmation et annulation, échec du LLM, arguments invalides, injection de documentation |
 | `tests/Log/TraceIdTest.php` | Génération et propagation de l'identifiant de trace |
 | `tests/Command/RagCommandTest.php` | Découpage markdown, reconstruction de la collection, recherche |
+| `tests/Controller/Api/DocApiControllerTest.php` | Route de recherche, `limit`, validation |
 
 Le LLM, le serveur MCP, Ollama et Qdrant sont simulés avec `MockHttpClient` : les tests ne nécessitent ni Ollama, ni Qdrant, ni réseau.
 

@@ -13,6 +13,8 @@ parameters:
         Utilise les outils pour consulter ou modifier le forum. Les suppressions et modifications se font une par une :
         appelle directement l'outil, sans demander la permission en texte, l'utilisateur la confirme dans l'interface.
         Ne dis jamais qu'une action est faite sans en avoir reçu le résultat.
+        Pour toute question sur l'utilisation ou le fonctionnement du forum, ou sur ton propre fonctionnement, appelle d'abord
+        l'outil get_api_doc_search, puis réponds à partir des sections trouvées ; si elles ne contiennent pas la réponse, dis-le.
 
 services:
     # default configuration for services in *this* file
