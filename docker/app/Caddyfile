@@ -1,0 +1,28 @@
+{
+	# Plain HTTP on localhost: no certificate to ask for.
+	auto_https off
+
+	# Nothing reconfigures this server at runtime.
+	admin off
+
+	skip_install_trust
+
+	frankenphp
+}
+
+:8080 {
+	root /app/public
+
+	# Inside a route, directives run in written order.
+	route {
+		# A dotfile dropped in public/ by mistake must not be served.
+		@hidden path_regexp ^/(.*/)?\.
+		respond @hidden 404
+
+		php_server {
+			index index.php
+		}
+	}
+
+	encode zstd br gzip
+}

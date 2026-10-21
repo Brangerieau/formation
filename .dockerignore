@@ -1,0 +1,6 @@
+# An allowlist: the image only needs its own config, the code comes through
+# the bind mount. Without this, vendor/ and var/ are sent to the daemon on
+# every build.
+*
+
+!docker/app

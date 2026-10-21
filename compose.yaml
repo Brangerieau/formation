@@ -1,0 +1,13 @@
+name: formation-forum
+
+services:
+  app:
+    build:
+      context: ./
+      dockerfile: ./docker/app/Dockerfile
+    container_name: formation-forum-app
+    volumes:
+      - .:/app
+    # 8080 and 8081 are taken by backend.psn-trophy.
+    ports:
+      - "8090:8080"

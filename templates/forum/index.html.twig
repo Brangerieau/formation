@@ -1,0 +1,28 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Accueil{% endblock %}
+
+{% block body %}
+    <h1>Catégories</h1>
+
+    <div class="board">
+        <div class="board-head">
+            <span>Catégorie</span>
+            <span class="num">Sujets</span>
+            <span class="date">Dernier sujet</span>
+        </div>
+
+        {% for category in categories %}
+            {% set last = category.topics|first %}
+            <div class="board-row">
+                <div>
+                    <a class="row-title" href="{{ path('forum_category', {id: category.id}) }}">{{ category.name }}</a>
+                </div>
+                <span class="num">{{ category.topics|length }}</span>
+                <span class="date">{{ last ? last.createdAt|date('d/m/Y') : '-' }}</span>
+            </div>
+        {% else %}
+            <p class="empty">Aucune catégorie. Lancez <code>make fixtures</code>.</p>
+        {% endfor %}
+    </div>
+{% endblock %}

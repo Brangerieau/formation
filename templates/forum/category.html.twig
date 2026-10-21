@@ -1,0 +1,44 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ category.name }}{% endblock %}
+
+{% block body %}
+    <nav class="breadcrumb">
+        <a href="{{ path('forum_index') }}">Forum</a> <span>/</span> {{ category.name }}
+    </nav>
+    <h1>{{ category.name }}</h1>
+
+    <div class="board">
+        <div class="board-head">
+            <span>Sujet</span>
+            <span class="num">Réponses</span>
+            <span class="date">Date</span>
+        </div>
+
+        {% for topic in category.topics %}
+            <div class="board-row">
+                <div class="row-main">
+                    <span class="avatar" aria-hidden="true">{{ topic.author|slice(0, 2)|upper }}</span>
+                    <div>
+                        <a class="row-title" href="{{ path('forum_topic', {id: topic.id}) }}">{{ topic.title }}</a>
+                        <div class="meta">par {{ topic.author }}</div>
+                    </div>
+                </div>
+                <span class="num">{{ topic.posts|length }}</span>
+                <span class="date">{{ topic.createdAt|date('d/m/Y') }}</span>
+            </div>
+        {% else %}
+            <p class="empty">Aucun sujet pour le moment.</p>
+        {% endfor %}
+    </div>
+
+    <section class="card">
+        <h2>Nouveau sujet</h2>
+        {{ form_start(form) }}
+            {{ form_row(form.title, {label: 'Titre'}) }}
+            {{ form_row(form.author, {label: 'Pseudo'}) }}
+            {{ form_row(form.content, {label: 'Message', attr: {rows: 6}}) }}
+            <button type="submit">Publier</button>
+        {{ form_end(form) }}
+    </section>
+{% endblock %}

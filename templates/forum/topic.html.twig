@@ -1,0 +1,32 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ topic.title }}{% endblock %}
+
+{% block body %}
+    <nav class="breadcrumb">
+        <a href="{{ path('forum_index') }}">Forum</a> <span>/</span>
+        <a href="{{ path('forum_category', {id: topic.category.id}) }}">{{ topic.category.name }}</a>
+    </nav>
+    <h1>{{ topic.title }}</h1>
+
+    {% for message in [topic]|merge(topic.posts.toArray) %}
+        <article class="post{{ loop.first ? ' post-first' }}">
+            <header class="post-header">
+                <span class="avatar" aria-hidden="true">{{ message.author|slice(0, 2)|upper }}</span>
+                <strong>{{ message.author }}</strong>
+                {% if loop.first %}<span class="badge">Auteur</span>{% endif %}
+                <time datetime="{{ message.createdAt|date('c') }}">{{ message.createdAt|date('d/m/Y à H:i') }}</time>
+            </header>
+            <div class="post-body">{{ message.content|nl2br }}</div>
+        </article>
+    {% endfor %}
+
+    <section class="card">
+        <h2>Répondre</h2>
+        {{ form_start(form) }}
+            {{ form_row(form.author, {label: 'Pseudo'}) }}
+            {{ form_row(form.content, {label: 'Message', attr: {rows: 5}}) }}
+            <button type="submit">Envoyer</button>
+        {{ form_end(form) }}
+    </section>
+{% endblock %}
