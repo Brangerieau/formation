@@ -168,21 +168,43 @@ class ChatControllerTest extends WebTestCase
         self::assertSame(['A', 'B'], array_column(array_column($this->mcpCalls, 'arguments'), 'name'));
     }
 
-    public function testCancelledCallIsReportedToTheModel(): void
+    public function testCancelledCallIsAcknowledgedWithoutAnotherAction(): void
     {
-        $llmResponses = [$this->llmToolCalls(['call_1' => ['delete_category', '{"name":"A"}']]), $this->llmReply('D\'accord.')];
+        $llmResponses = [
+            $this->llmToolCalls(['call_1' => ['delete_category', '{"name":"A"}']]),
+            $this->llmReply('D\'accord, je ne supprime pas A.'),
+            $this->llmReply('De rien.'),
+        ];
         $client = $this->createChatClient($llmResponses);
         $this->chat($client, 'Supprime la catégorie A');
 
-        $client->request('POST', '/chat/cancel');
-        self::assertResponseIsSuccessful();
-        self::assertSelectorTextSame('#chat-tool-call_1.chat-tool-cancelled summary', 'Supprimer une catégorie (name: A) annulé');
+        // The card is sent again with its new status, then the LLM answers, without tools to go on with.
+        $events = $this->chat($client, null, '/chat/cancel');
+        self::assertSame(['tool', 'delta', 'done'], array_column($events, 0));
+        $tool = new Crawler($events[0][1]);
+        self::assertSame('chat-tool-call_1', $tool->filter('.chat-tool-cancelled')->attr('id'));
+        self::assertSame('Supprimer une catégorie (name: A) annulé', $tool->filter('summary')->text());
+        $request = json_decode($llmResponses[1]->getRequestOptions()['body'], true);
+        self::assertArrayNotHasKey('tools', $request);
+        self::assertStringStartsWith('Annulé par l\'utilisateur', $request['messages'][3]['content']);
+        self::assertSame([], $this->mcpCalls);
+
         $client->request('POST', '/chat/cancel');
         self::assertResponseStatusCodeSame(409);
 
         $this->chat($client, 'Merci');
-        self::assertSame('Annulé par l\'utilisateur.', $this->sentMessages($llmResponses[1])[3]['content']);
-        self::assertSame([], $this->mcpCalls);
+        self::assertSame(['system', 'user', 'assistant', 'tool', 'assistant', 'user'], array_column($this->sentMessages($llmResponses[2]), 'role'));
+    }
+
+    public function testCancellationStandsWhenTheLlmFails(): void
+    {
+        $llmResponses = [$this->llmToolCalls(['call_1' => ['delete_category', '{"name":"A"}']]), new JsonMockResponse([], ['http_code' => 500])];
+        $client = $this->createChatClient($llmResponses);
+        $this->chat($client, 'Supprime la catégorie A');
+
+        self::assertSame(['tool', 'error'], array_column($this->chat($client, null, '/chat/cancel'), 0));
+        $client->request('GET', '/');
+        self::assertSelectorExists('#chat-tool-call_1.chat-tool-cancelled');
     }
 
     public function testNewMessageCancelsTheWaitingCall(): void
@@ -195,7 +217,7 @@ class ChatControllerTest extends WebTestCase
         $events = $this->chat($client, 'Laisse tomber');
         self::assertSame(['tool', 'delta', 'done'], array_column($events, 0));
         self::assertSame('chat-tool-call_1', (new Crawler($events[0][1]))->filter('.chat-tool-cancelled')->attr('id'));
-        self::assertSame('Annulé par l\'utilisateur.', $this->sentMessages($llmResponses[1])[3]['content']);
+        self::assertStringStartsWith('Annulé par l\'utilisateur', $this->sentMessages($llmResponses[1])[3]['content']);
         self::assertSame([], $this->mcpCalls);
     }
 

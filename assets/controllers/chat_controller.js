@@ -23,13 +23,7 @@ export default class extends Controller {
     }
 
     async cancel() {
-        await this.#busy(async () => {
-            const response = await fetch(this.cancelUrlValue, { method: 'POST' });
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            this.#insert(await response.text());
-        });
+        await this.#stream(this.cancelUrlValue);
     }
 
     // The new tool calls come as server-rendered cards, then the answer as text pieces.

@@ -31,7 +31,7 @@ class ChatBot
     private const int MAX_ROUNDS = 5;
     private const string PENDING = 'En attente de confirmation par l\'utilisateur.';
     private const string SKIPPED = 'Non exécuté : une seule action à la fois attend la confirmation de l\'utilisateur.';
-    private const string CANCELLED = 'Annulé par l\'utilisateur.';
+    private const string CANCELLED = 'Annulé par l\'utilisateur : ne refais pas cette action et n\'en propose pas d\'autre, sauf s\'il le redemande.';
 
     public function __construct(
         private HttpClientInterface $ollamaClient,
@@ -82,9 +82,11 @@ class ChatBot
     }
 
     /**
-     * @return array|null the cancelled tool call as a transcript item; null when nothing waits
+     * Cancels the call waiting for confirmation, then lets the LLM acknowledge it.
+     *
+     * @return \Generator<array>|null as reply(), starting with the cancelled tool call; null when nothing waits
      */
-    public function cancel(): ?array
+    public function cancel(): ?\Generator
     {
         $conversation = $this->conversation();
         $history = $conversation->get() ?? [];
@@ -92,9 +94,19 @@ class ChatBot
         if (null === $cancelled) {
             return null;
         }
+        // Kept even if the LLM then fails: the user's decision stands.
         $this->cache->save($conversation->set($history)->expiresAfter(self::CONVERSATION_TTL));
 
-        return $this->transcript([$cancelled])[0];
+        return $this->acknowledge($conversation, $history, $cancelled);
+    }
+
+    private function acknowledge(CacheItemInterface $conversation, array $history, array $cancelled): \Generator
+    {
+        yield from $this->transcript([$cancelled]);
+        // Without tools, the model can only answer: nothing else happens until the user writes again.
+        $answer = yield from $this->complete($history);
+        $history[] = ['role' => 'assistant', 'content' => $answer['content']];
+        $this->cache->save($conversation->set($history)->expiresAfter(self::CONVERSATION_TTL));
     }
 
     /**

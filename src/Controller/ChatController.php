@@ -30,11 +30,11 @@ class ChatController extends AbstractController
         return $this->eventStream($bot->confirm() ?? throw new ConflictHttpException('Aucune action en attente.'), $chatLogger);
     }
 
-    // Returns the cancelled action, rendered as in the history.
+    // Cancels the destructive call waiting for confirmation, streamed as /chat with the LLM's acknowledgement.
     #[Route('/chat/cancel', name: 'chat_cancel', methods: ['POST'])]
-    public function cancel(ChatBot $bot): Response
+    public function cancel(ChatBot $bot, LoggerInterface $chatLogger): EventStreamResponse
     {
-        return $this->render('chat/_transcript.html.twig', ['items' => [$bot->cancel() ?? throw new ConflictHttpException('Aucune action en attente.')]]);
+        return $this->eventStream($bot->cancel() ?? throw new ConflictHttpException('Aucune action en attente.'), $chatLogger);
     }
 
     #[Route('/chat/reset', name: 'chat_reset', methods: ['POST'])]
