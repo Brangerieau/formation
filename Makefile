@@ -6,7 +6,7 @@ PHP					?= $(DOCKER_COMPOSE_EXEC) app php
 COMPOSER			?= $(DOCKER_COMPOSE) exec --user=$(shell id -u):$(shell id -g) --env COMPOSER_HOME=/tmp/composer app composer
 
 # Must support tool calling to use the MCP server. Smaller/faster: make llm-pull OLLAMA_MODEL=qwen2.5:3b
-OLLAMA_MODEL		?= qwen2.5:7b
+OLLAMA_MODEL		?= qwen3:4b-instruct
 
 define main_title
 	@{ \
