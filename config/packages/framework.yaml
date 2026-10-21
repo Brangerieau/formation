@@ -5,6 +5,13 @@ framework:
     # Note that the session will be started ONLY if you read or write from it.
     session: true
 
+    http_client:
+        scoped_clients:
+            ollama.client:
+                base_uri: '%env(OLLAMA_URL)%'
+                # CPU only: a reply can take tens of seconds.
+                timeout: 120
+
     #esi: true
     #fragments: true
 
