@@ -1,10 +1,10 @@
 {# data-turbo-permanent keeps the conversation across Turbo page visits; a full reload re-renders it from the session. #}
-<details id="chat" class="chat" data-turbo-permanent data-controller="chat" data-chat-url-value="{{ path('chat') }}" data-chat-reset-url-value="{{ path('chat_reset') }}">
+<details id="chat" class="chat" data-turbo-permanent data-controller="chat" data-chat-url-value="{{ path('chat') }}" data-chat-reset-url-value="{{ path('chat_reset') }}" data-chat-confirm-url-value="{{ path('chat_confirm') }}" data-chat-cancel-url-value="{{ path('chat_cancel') }}">
     <summary>Assistant</summary>
     <div class="chat-log" data-chat-target="log" aria-live="polite">
         {{- include('chat/_transcript.html.twig', {items: chat_transcript()}) }}
     </div>
-    <form data-action="chat#send">
+    <form data-chat-target="form" data-action="chat#send">
         <input type="text" data-chat-target="input" aria-label="Votre message" placeholder="Votre message" maxlength="2000" autocomplete="off" required>
         <button>Envoyer</button>
         <button type="button" data-action="chat#reset" title="Nouvelle conversation">Effacer</button>

@@ -88,11 +88,11 @@ class ChatControllerTest extends WebTestCase
 
         // MCP tools are offered in the OpenAI format, a parameterless one keeping "properties": {}.
         $firstRequest = $llmResponses[0]->getRequestOptions()['body'];
-        self::assertSame([['type' => 'function', 'function' => [
+        self::assertSame(['type' => 'function', 'function' => [
             'name' => 'get_api_category_list',
             'description' => 'Lister toutes les catégories du forum',
             'parameters' => ['properties' => [], 'type' => 'object', 'required' => []],
-        ]]], json_decode($firstRequest, true)['tools']);
+        ]], json_decode($firstRequest, true)['tools'][0]);
         self::assertStringContainsString('"properties":{}', $firstRequest);
         self::assertSame([['name' => 'get_api_category_list', 'arguments' => []]], $this->mcpCalls);
         // tools/list and tools/call carry the trace id of this /chat request, so both sides log under it.
@@ -100,8 +100,9 @@ class ChatControllerTest extends WebTestCase
         self::assertMatchesRegularExpression('/^X-Trace-Id: [0-9a-f]{8}$/', $this->mcpTraceIds[0]);
         self::assertSame($this->mcpTraceIds[0], $this->mcpTraceIds[1]);
 
+        // Read-only tools can follow one another: they are offered again.
         $secondRequest = json_decode($llmResponses[1]->getRequestOptions()['body'], true);
-        self::assertArrayNotHasKey('tools', $secondRequest);
+        self::assertArrayHasKey('tools', $secondRequest);
         self::assertSame(['role' => 'tool', 'tool_call_id' => 'call_1', 'content' => 'Résultat de get_api_category_list'], $secondRequest['messages'][3]);
 
         // Tool calls stay in the history sent to the LLM, but not in the widget.
@@ -112,23 +113,105 @@ class ChatControllerTest extends WebTestCase
         self::assertSelectorTextSame('#chat .chat-tool summary', 'Lister toutes les catégories du forum ok');
     }
 
-    public function testOnlyTheFirstToolCallRuns(): void
+    public function testDestructiveToolsWaitForConfirmation(): void
     {
         $llmResponses = [
-            $this->llmToolCalls(['call_1' => ['post_api_category_create', '{"name":"A"}'], 'call_2' => ['post_api_category_create', '{"name":"B"}']]),
-            $this->llmReply('J\'ai créé A, voulez-vous que je crée B ?'),
+            $this->llmToolCalls(['call_1' => ['delete_category', '{"name":"A"}'], 'call_2' => ['delete_category', '{"name":"B"}']]),
+            $this->llmToolCalls(['call_3' => ['delete_category', '{"name":"B"}']]),
+            $this->llmReply('B est supprimée.'),
         ];
         $client = $this->createChatClient($llmResponses);
 
-        $tools = new Crawler(implode('', array_column(\array_slice($this->chat($client, 'Crée les catégories A et B'), 0, 2), 1)));
+        // Even the first delete waits, the next one isn't offered. The LLM isn't called again until the user decides:
+        // the request checked after the confirmation is its second one.
+        $events = $this->chat($client, 'Supprime les catégories A et B');
+        self::assertSame(['tool', 'tool', 'done'], array_column($events, 0));
+        self::assertSame([], $this->mcpCalls);
+        $tools = new Crawler(implode('', array_column($events, 1)));
+        self::assertSame('chat-tool-call_1', $tools->filter('.chat-tool-pending')->attr('id'));
+        self::assertSame('Supprimer une catégorie (name: A) à confirmer', $tools->filter('.chat-tool-pending summary')->text());
+        self::assertCount(2, $tools->filter('.chat-tool-pending button'));
+        self::assertSame('Supprimer une catégorie (name: B) non exécuté', $tools->filter('.chat-tool-skipped summary')->text());
 
-        self::assertSame([['name' => 'post_api_category_create', 'arguments' => ['name' => 'A']]], $this->mcpCalls);
-        self::assertSame('post_api_category_create (name: A) ok', $tools->filter('.chat-tool-ok summary')->text());
-        self::assertSame('post_api_category_create (name: B) non exécuté', $tools->filter('.chat-tool-skipped summary')->text());
-        [, , , $first, $second] = $this->sentMessages($llmResponses[1]);
-        self::assertSame('Résultat de post_api_category_create', $first['content']);
-        self::assertSame('call_2', $second['tool_call_id']);
-        self::assertStringStartsWith('Non exécuté', $second['content']);
+        // The waiting card survives a page load.
+        $client->request('GET', '/');
+        self::assertSelectorCount(2, '#chat .chat-tool-pending button');
+
+        // Confirmed, the stored call runs as is, then the LLM goes on: its next delete waits again.
+        $events = $this->chat($client, null, '/chat/confirm');
+        self::assertSame(['tool', 'tool', 'done'], array_column($events, 0));
+        self::assertSame('chat-tool-call_1', (new Crawler($events[0][1]))->filter('.chat-tool-ok')->attr('id'));
+        self::assertSame('chat-tool-call_3', (new Crawler($events[1][1]))->filter('.chat-tool-pending')->attr('id'));
+        self::assertSame([['name' => 'delete_category', 'arguments' => ['name' => 'A']]], $this->mcpCalls);
+        $messages = $this->sentMessages($llmResponses[1]);
+        self::assertSame(['system', 'user', 'assistant', 'tool', 'tool'], array_column($messages, 'role'));
+        self::assertSame(['role' => 'tool', 'tool_call_id' => 'call_1', 'content' => 'Résultat de delete_category'], $messages[3]);
+        self::assertStringStartsWith('Non exécuté', $messages[4]['content']);
+
+        $events = $this->chat($client, null, '/chat/confirm');
+        self::assertSame(['tool', 'delta', 'done'], array_column($events, 0));
+        self::assertSame(['A', 'B'], array_column(array_column($this->mcpCalls, 'arguments'), 'name'));
+
+        $client->request('POST', '/chat/confirm');
+        self::assertResponseStatusCodeSame(409);
+    }
+
+    public function testCreationsRunWithoutConfirmation(): void
+    {
+        $llmResponses = [
+            $this->llmToolCalls(['call_1' => ['post_api_category_create', '{"name":"A"}'], 'call_2' => ['post_api_category_create', '{"name":"B"}']]),
+            $this->llmReply('A et B sont créées.'),
+        ];
+        $client = $this->createChatClient($llmResponses);
+
+        self::assertSame(['tool', 'tool', 'delta', 'done'], array_column($this->chat($client, 'Crée les catégories A et B'), 0));
+        self::assertSame(['A', 'B'], array_column(array_column($this->mcpCalls, 'arguments'), 'name'));
+    }
+
+    public function testCancelledCallIsReportedToTheModel(): void
+    {
+        $llmResponses = [$this->llmToolCalls(['call_1' => ['delete_category', '{"name":"A"}']]), $this->llmReply('D\'accord.')];
+        $client = $this->createChatClient($llmResponses);
+        $this->chat($client, 'Supprime la catégorie A');
+
+        $client->request('POST', '/chat/cancel');
+        self::assertResponseIsSuccessful();
+        self::assertSelectorTextSame('#chat-tool-call_1.chat-tool-cancelled summary', 'Supprimer une catégorie (name: A) annulé');
+        $client->request('POST', '/chat/cancel');
+        self::assertResponseStatusCodeSame(409);
+
+        $this->chat($client, 'Merci');
+        self::assertSame('Annulé par l\'utilisateur.', $this->sentMessages($llmResponses[1])[3]['content']);
+        self::assertSame([], $this->mcpCalls);
+    }
+
+    public function testNewMessageCancelsTheWaitingCall(): void
+    {
+        $llmResponses = [$this->llmToolCalls(['call_1' => ['delete_category', '{"name":"A"}']]), $this->llmReply('Bonjour.')];
+        $client = $this->createChatClient($llmResponses);
+        $this->chat($client, 'Supprime la catégorie A');
+
+        // The card is sent again with its new status, for the widget to replace.
+        $events = $this->chat($client, 'Laisse tomber');
+        self::assertSame(['tool', 'delta', 'done'], array_column($events, 0));
+        self::assertSame('chat-tool-call_1', (new Crawler($events[0][1]))->filter('.chat-tool-cancelled')->attr('id'));
+        self::assertSame('Annulé par l\'utilisateur.', $this->sentMessages($llmResponses[1])[3]['content']);
+        self::assertSame([], $this->mcpCalls);
+    }
+
+    public function testReadOnlyToolsChainUntilTheLastRound(): void
+    {
+        $llmResponses = [
+            ...array_map(fn (int $i) => $this->llmToolCalls(['call_'.$i => ['get_api_category_list', '{}']]), range(1, 4)),
+            $this->llmReply('Voilà.'),
+        ];
+        $client = $this->createChatClient($llmResponses);
+
+        self::assertSame(['tool', 'tool', 'tool', 'tool', 'delta', 'done'], array_column($this->chat($client, 'Liste'), 0));
+        self::assertCount(4, $this->mcpCalls);
+        // The last call goes without tools: the model has to answer.
+        self::assertArrayHasKey('tools', json_decode($llmResponses[3]->getRequestOptions()['body'], true));
+        self::assertArrayNotHasKey('tools', json_decode($llmResponses[4]->getRequestOptions()['body'], true));
     }
 
     public function testInvalidToolArgumentsAreReportedToTheModel(): void
@@ -174,6 +257,17 @@ class ChatControllerTest extends WebTestCase
                 'name' => 'get_api_category_list',
                 'description' => 'Lister toutes les catégories du forum',
                 'inputSchema' => ['type' => 'object', 'properties' => new \stdClass(), 'required' => []],
+                'annotations' => ['readOnlyHint' => true],
+            ], [
+                'name' => 'post_api_category_create',
+                'description' => 'Créer une catégorie',
+                'inputSchema' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']], 'required' => ['name']],
+                'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false],
+            ], [
+                'name' => 'delete_category',
+                'description' => 'Supprimer une catégorie',
+                'inputSchema' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']], 'required' => ['name']],
+                'annotations' => ['readOnlyHint' => false, 'destructiveHint' => true],
             ]]]]);
         }));
 
@@ -183,9 +277,9 @@ class ChatControllerTest extends WebTestCase
     /**
      * @return list<array{string, string}> the server-sent events, as [type, data]
      */
-    private function chat(KernelBrowser $client, string $message): array
+    private function chat(KernelBrowser $client, ?string $message, string $url = '/chat'): array
     {
-        $client->request('POST', '/chat', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(['message' => $message]));
+        $client->request('POST', $url, server: ['CONTENT_TYPE' => 'application/json'], content: null === $message ? null : json_encode(['message' => $message]));
 
         $events = [];
         foreach (explode("\n\n", trim($client->getInternalResponse()->getContent(), "\n")) as $block) {

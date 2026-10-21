@@ -1,11 +1,19 @@
 {% for item in items %}
     {% if item.type == 'tool' %}
-        <details class="chat-tool chat-tool-{{ item.status }}">
+        {# The id lets the widget replace the card when the action is confirmed or cancelled. #}
+        <details id="chat-tool-{{ item.id }}" class="chat-tool chat-tool-{{ item.status }}"{% if item.status == 'pending' %} open{% endif %}>
             <summary>
                 {{ item.label }}{% if item.arguments %} <span class="chat-tool-args">({{ item.arguments }})</span>{% endif %}
-                <span class="chat-tool-status">{{ {ok: 'ok', error: 'erreur', skipped: 'non exécuté'}[item.status] }}</span>
+                <span class="chat-tool-status">{{ {ok: 'ok', error: 'erreur', pending: 'à confirmer', skipped: 'non exécuté', cancelled: 'annulé'}[item.status] }}</span>
             </summary>
-            <pre>{{ item.result }}</pre>
+            {% if item.status == 'pending' %}
+                <div class="chat-tool-confirm">
+                    <button type="button" data-action="chat#confirm">Confirmer</button>
+                    <button type="button" data-action="chat#cancel">Annuler</button>
+                </div>
+            {% else %}
+                <pre>{{ item.result }}</pre>
+            {% endif %}
         </details>
     {% else %}
         <p class="chat-msg chat-msg-{{ item.role }}">{{ item.content }}</p>

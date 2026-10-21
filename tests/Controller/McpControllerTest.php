@@ -2,6 +2,7 @@
 
 namespace App\Tests\Controller;
 
+use App\Mcp\ApiToolRegistry;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -56,8 +57,18 @@ class McpControllerTest extends WebTestCase
         self::assertSame('Créer un sujet dans une catégorie', $createTopic['description']);
         self::assertEqualsCanonicalizing(['id', 'title', 'content', 'author'], $createTopic['inputSchema']['required']);
         self::assertSame(150, $createTopic['inputSchema']['properties']['title']['maxLength']);
-        self::assertFalse($createTopic['annotations']['readOnlyHint']);
+        self::assertSame(['readOnlyHint' => false, 'destructiveHint' => false], $createTopic['annotations']);
         self::assertTrue($tools['get_api_category_list']['annotations']['readOnlyHint']);
+    }
+
+    public function testOperationsAreDestructiveOnlyWhenTheyDeclareIt(): void
+    {
+        // The API deletes are hidden from tools/list, but still declared in the OpenAPI spec.
+        $annotations = array_column(static::getContainer()->get(ApiToolRegistry::class)->definitions(), 'annotations', 'name');
+
+        self::assertSame(['readOnlyHint' => false, 'destructiveHint' => true], $annotations['delete_api_category_delete']);
+        self::assertSame(['readOnlyHint' => false, 'destructiveHint' => false], $annotations['post_api_category_create']);
+        self::assertSame(['readOnlyHint' => true, 'destructiveHint' => false], $annotations['get_api_category_list']);
     }
 
     public function testCallsApiThroughTools(): void

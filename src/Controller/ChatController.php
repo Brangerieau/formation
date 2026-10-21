@@ -9,6 +9,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\EventStreamResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ServerEvent;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -19,9 +20,35 @@ class ChatController extends AbstractController
     #[Route('/chat', name: 'chat', methods: ['POST'])]
     public function chat(#[MapRequestPayload] ChatInput $input, ChatBot $bot, LoggerInterface $chatLogger): EventStreamResponse
     {
-        // Up to two LLM calls per message, each allowed 120 s by ollama.client (CPU only).
-        set_time_limit(240);
-        $reply = $bot->reply($input->message);
+        return $this->eventStream($bot->reply($input->message), $chatLogger);
+    }
+
+    // Runs the destructive call waiting for confirmation, streamed as /chat.
+    #[Route('/chat/confirm', name: 'chat_confirm', methods: ['POST'])]
+    public function confirm(ChatBot $bot, LoggerInterface $chatLogger): EventStreamResponse
+    {
+        return $this->eventStream($bot->confirm() ?? throw new ConflictHttpException('Aucune action en attente.'), $chatLogger);
+    }
+
+    // Returns the cancelled action, rendered as in the history.
+    #[Route('/chat/cancel', name: 'chat_cancel', methods: ['POST'])]
+    public function cancel(ChatBot $bot): Response
+    {
+        return $this->render('chat/_transcript.html.twig', ['items' => [$bot->cancel() ?? throw new ConflictHttpException('Aucune action en attente.')]]);
+    }
+
+    #[Route('/chat/reset', name: 'chat_reset', methods: ['POST'])]
+    public function reset(ChatBot $bot): Response
+    {
+        $bot->reset();
+
+        return new Response(status: Response::HTTP_NO_CONTENT);
+    }
+
+    private function eventStream(\Generator $reply, LoggerInterface $chatLogger): EventStreamResponse
+    {
+        // Up to ChatBot::MAX_ROUNDS LLM calls, each allowed 120 s by ollama.client (CPU only).
+        set_time_limit(600);
 
         return new EventStreamResponse(function () use ($reply, $chatLogger) {
             try {
@@ -36,13 +63,5 @@ class ChatController extends AbstractController
                 yield new ServerEvent('', type: 'error');
             }
         });
-    }
-
-    #[Route('/chat/reset', name: 'chat_reset', methods: ['POST'])]
-    public function reset(ChatBot $bot): Response
-    {
-        $bot->reset();
-
-        return new Response(status: Response::HTTP_NO_CONTENT);
     }
 }

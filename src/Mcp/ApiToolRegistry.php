@@ -119,7 +119,8 @@ class ApiToolRegistry
                         'description' => $operation['summary'] ?? $operation['description'] ?? $operation['operationId'],
                         // Objects, not arrays, so empty values still encode as {} in JSON.
                         'inputSchema' => ['type' => 'object', 'properties' => (object) $properties, 'required' => $required],
-                        'annotations' => ['readOnlyHint' => 'get' === $method],
+                        // Not destructive unless the operation says so: #[OA\Delete(x: ['mcp-annotations' => ['destructiveHint' => true]])].
+                        'annotations' => array_merge(['readOnlyHint' => 'get' === $method, 'destructiveHint' => false], $operation['x-mcp-annotations'] ?? []),
                     ],
                     'method' => $method,
                     'path' => $path,

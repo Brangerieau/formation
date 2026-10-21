@@ -96,7 +96,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/categories/{id}', name: 'category_delete', methods: ['DELETE'])]
-    #[OA\Delete(summary: 'Supprimer définitivement une catégorie, avec tous ses sujets et leurs messages')]
+    #[OA\Delete(summary: 'Supprimer définitivement une catégorie, avec tous ses sujets et leurs messages', x: ['mcp-annotations' => ['destructiveHint' => true]])]
     #[OA\Response(response: 204, description: 'Catégorie supprimée')]
     #[OA\Response(response: 404, description: 'Catégorie introuvable')]
     public function deleteCategory(Category $category, EntityManagerInterface $em): Response
@@ -108,7 +108,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/topics/{id}', name: 'topic_delete', methods: ['DELETE'])]
-    #[OA\Delete(summary: 'Supprimer définitivement un sujet, avec tous ses messages')]
+    #[OA\Delete(summary: 'Supprimer définitivement un sujet, avec tous ses messages', x: ['mcp-annotations' => ['destructiveHint' => true]])]
     #[OA\Response(response: 204, description: 'Sujet supprimé')]
     #[OA\Response(response: 404, description: 'Sujet introuvable')]
     public function deleteTopic(Topic $topic, EntityManagerInterface $em): Response
@@ -120,7 +120,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/posts/{id}', name: 'post_delete', methods: ['DELETE'])]
-    #[OA\Delete(summary: 'Supprimer définitivement un message')]
+    #[OA\Delete(summary: 'Supprimer définitivement un message', x: ['mcp-annotations' => ['destructiveHint' => true]])]
     #[OA\Response(response: 204, description: 'Message supprimé')]
     #[OA\Response(response: 404, description: 'Message introuvable')]
     public function deletePost(Post $post, EntityManagerInterface $em): Response

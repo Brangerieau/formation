@@ -391,6 +391,12 @@ button:hover {
     color: var(--danger);
 }
 
+.chat-tool-confirm {
+    display: flex;
+    gap: .5rem;
+    margin: .25rem 0 .5rem;
+}
+
 .chat-tool pre {
     max-height: 12rem;
     overflow: auto;
