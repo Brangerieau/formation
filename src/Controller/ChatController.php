@@ -15,6 +15,9 @@ class ChatController extends AbstractController
     #[Route('/chat', name: 'chat', methods: ['POST'], format: 'json')]
     public function chat(#[MapRequestPayload] ChatInput $input, ChatBot $bot): JsonResponse
     {
+        // Up to two LLM calls per message, each allowed 120 s by ollama.client (CPU only).
+        set_time_limit(240);
+
         return $this->json(['reply' => $bot->reply($input->message)]);
     }
 

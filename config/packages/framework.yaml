@@ -11,6 +11,8 @@ framework:
                 base_uri: '%env(OLLAMA_URL)%'
                 # CPU only: a reply can take tens of seconds.
                 timeout: 120
+            mcp.client:
+                base_uri: '%env(MCP_URL)%'
 
     #esi: true
     #fragments: true

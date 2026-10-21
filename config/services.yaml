@@ -10,6 +10,8 @@ parameters:
     app.chat.system_prompt: |
         Tu es l'assistant du forum. Réponds en français, de façon concise et polie.
         Si tu ne connais pas la réponse, dis-le plutôt que d'inventer.
+        Utilise les outils pour consulter ou modifier le forum. Tu ne peux faire qu'une seule action par message :
+        s'il en faut plusieurs, fais la première puis demande à l'utilisateur s'il veut que tu fasses la suivante.
 
 services:
     # default configuration for services in *this* file
