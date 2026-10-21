@@ -5,6 +5,9 @@ PHP					?= $(DOCKER_COMPOSE_EXEC) app php
 # As the host user: vendor/ belongs to the developer, not to www-data.
 COMPOSER			?= $(DOCKER_COMPOSE) exec --user=$(shell id -u):$(shell id -g) --env COMPOSER_HOME=/tmp/composer app composer
 
+# Must support tool calling to use the MCP server. Smaller/faster: make llm-pull OLLAMA_MODEL=qwen2.5:3b
+OLLAMA_MODEL		?= qwen2.5:7b
+
 define main_title
 	@{ \
 	set -e ;\
@@ -18,7 +21,7 @@ endef
 ##@ Project
 
 install: ## Build, start, install dependencies and load the demo data
-	make build up vendor db-update fixtures
+	make build up vendor db-update fixtures llm-pull
 
 build: ## Build the image
 	$(call main_title,)
@@ -56,6 +59,12 @@ db-update: ## Run the pending migrations
 fixtures: ## Load the demo data (wipes the database)
 	$(call main_title,)
 	$(PHP) bin/console doctrine:fixtures:load --no-interaction --no-debug
+
+##@ LLM
+
+llm-pull: ## Download the Ollama model (stored in the ollama volume, only once)
+	$(call main_title,)
+	$(DOCKER_COMPOSE) exec ollama ollama pull $(OLLAMA_MODEL)
 
 ##@ Utility
 

@@ -11,3 +11,15 @@ services:
     # 8080 and 8081 are taken by backend.psn-trophy.
     ports:
       - "8090:8080"
+
+  # CPU only: no GPU is exposed to Docker on this machine.
+  ollama:
+    image: ollama/ollama:0.40.6
+    container_name: formation-forum-ollama
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  ollama:
