@@ -66,13 +66,12 @@ class ApiToolRegistry
         );
         $start = microtime(true);
         $response = $this->kernel->handle($request, HttpKernelInterface::SUB_REQUEST);
-        $this->logger->info('Sous-requête API', [
+        $this->logger->info('Requête API', [
             'tool' => $name,
             'request' => $request->getMethod().' '.$request->getRequestUri(),
             'status' => $response->getStatusCode(),
             'ms' => (int) ((microtime(true) - $start) * 1000),
         ]);
-        $this->logger->debug('Réponse API', ['body' => $response->getContent()]);
 
         // API errors (404, 422...) go back to the model as a tool result so it can correct its call.
         return [

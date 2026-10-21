@@ -4,8 +4,6 @@ namespace App\Controller;
 
 use App\Dto\JsonRpcRequest;
 use App\Mcp\McpTools;
-use Monolog\Attribute\WithMonologChannel;
-use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,16 +17,10 @@ use Symfony\Component\Routing\Attribute\Route;
  *
  * @see https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
  */
-#[WithMonologChannel('mcp')]
 class McpController extends AbstractController
 {
     // Most recent first: used when the client asks for a version we don't know.
     private const array PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
-
-    public function __construct(
-        private LoggerInterface $logger,
-    ) {
-    }
 
     #[Route('/mcp', name: 'mcp', methods: ['POST'], format: 'json')]
     public function handle(Request $request, #[MapRequestPayload] JsonRpcRequest $rpc, McpTools $tools): Response
@@ -38,8 +30,6 @@ class McpController extends AbstractController
         if (null !== $origin && parse_url($origin, \PHP_URL_HOST) !== $request->getHost()) {
             throw new AccessDeniedHttpException('Invalid Origin.');
         }
-
-        $this->logger->info('Requête MCP', ['method' => $rpc->method, 'params' => $rpc->params]);
 
         if (null === $rpc->id) {
             return new Response(status: Response::HTTP_ACCEPTED);

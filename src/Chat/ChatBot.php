@@ -44,6 +44,7 @@ class ChatBot
         $turnStart = \count($history);
 
         $tools = $this->mcp->tools();
+        $this->logger->info('Tools disponibles', ['count' => \count($tools)]);
         $answer = $this->complete($history, array_map(fn (array $tool) => ['type' => 'function', 'function' => [
             'name' => $tool['name'],
             'description' => $tool['description'],
@@ -64,7 +65,7 @@ class ChatBot
         // Saved only on success: a failed call leaves no unanswered message in the history.
         $history[] = ['role' => 'assistant', 'content' => $answer['content']];
         $this->requestStack->getSession()->set(self::HISTORY_KEY, $history);
-        $this->logger->info('Réponse envoyée', ['reply' => $answer['content'], 'total_ms' => (int) ((microtime(true) - $start) * 1000)]);
+        $this->logger->info('Réponse envoyée', ['total_ms' => (int) ((microtime(true) - $start) * 1000)]);
 
         return $this->transcript(\array_slice($history, $turnStart));
     }
@@ -113,27 +114,21 @@ class ChatBot
      */
     private function complete(array $history, array $tools = []): array
     {
-        $body = [
+        $response = $this->ollamaClient->request('POST', '/v1/chat/completions', ['json' => [
             'model' => $this->model,
             'messages' => [
                 ['role' => 'system', 'content' => $this->systemPrompt],
                 ...array_map(fn (array $message) => array_diff_key($message, ['display' => true]), $history),
             ],
-        ] + ($tools ? ['tools' => $tools] : []);
-        $this->logger->info('Appel LLM', ['messages' => \count($body['messages']), 'tools' => \count($tools)]);
-        $this->logger->debug('Requête LLM', ['body' => $body]);
+        ] + ($tools ? ['tools' => $tools] : [])]);
+        $message = $response->toArray()['choices'][0]['message'];
 
-        $response = $this->ollamaClient->request('POST', '/v1/chat/completions', ['json' => $body]);
-        $data = $response->toArray();
-        $message = $data['choices'][0]['message'];
-
-        $this->logger->info('Réponse LLM', [
+        $this->logger->info('Réponse du LLM', [
+            'tools' => \count($tools),
             'ms' => (int) ($response->getInfo('total_time') * 1000),
-            'tokens' => $data['usage'] ?? null,
-            'tool_calls' => array_map(fn (array $toolCall) => $toolCall['function']['name'].' '.$toolCall['function']['arguments'], $message['tool_calls'] ?? []),
-            'content' => $message['content'] ?? '',
+            'tool_calls' => array_map(fn (array $toolCall) => $toolCall['function']['name'], $message['tool_calls'] ?? []),
+            'reply' => $message['content'] ?? '',
         ]);
-        $this->logger->debug('Réponse LLM brute', ['body' => $data]);
 
         return $message;
     }
@@ -160,8 +155,7 @@ class ChatBot
             default => $result['text'],
         };
         $status = null === $result ? 'skipped' : ($result['isError'] ? 'error' : 'ok');
-        $this->logger->info('Résultat tool', ['tool' => $name, 'arguments' => $arguments, 'status' => $status, 'bytes' => \strlen($content)]);
-        $this->logger->debug('Contenu du résultat tool', ['tool' => $name, 'content' => $content]);
+        $this->logger->info('Résultat du tool', ['tool' => $name, 'arguments' => $arguments, 'status' => $status]);
 
         return [
             'role' => 'tool',
