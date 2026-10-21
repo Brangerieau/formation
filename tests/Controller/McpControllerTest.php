@@ -45,6 +45,9 @@ class McpControllerTest extends WebTestCase
             'post_api_topic_create',
             'get_api_topic_show',
             'post_api_post_create',
+            'delete_api_category_delete',
+            'delete_api_topic_delete',
+            'delete_api_post_delete',
         ], array_keys($tools));
 
         $createTopic = $tools['post_api_topic_create'];
@@ -67,6 +70,10 @@ class McpControllerTest extends WebTestCase
 
         $shown = $this->callTool('get_api_topic_show', ['id' => (string) $topicId]);
         self::assertSame('MCP', json_decode($shown['content'][0]['text'], true)['title']);
+
+        // 204: no body, still a successful tool call.
+        self::assertSame(['content' => [['type' => 'text', 'text' => '']], 'isError' => false], $this->callTool('delete_api_topic_delete', ['id' => (string) $topicId]));
+        self::assertTrue($this->callTool('get_api_topic_show', ['id' => (string) $topicId])['isError']);
     }
 
     public function testApiErrorsAreToolErrors(): void

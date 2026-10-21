@@ -39,7 +39,7 @@ class Topic
     private Category $category;
 
     /** @var Collection<int, Post> */
-    #[ORM\OneToMany(targetEntity: Post::class, mappedBy: 'topic')]
+    #[ORM\OneToMany(targetEntity: Post::class, mappedBy: 'topic', cascade: ['remove'])]
     #[ORM\OrderBy(['createdAt' => 'ASC'])]
     #[Groups(['topic:posts'])]
     private Collection $posts;

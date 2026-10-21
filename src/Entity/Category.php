@@ -19,7 +19,7 @@ class Category
     private string $name;
 
     /** @var Collection<int, Topic> */
-    #[ORM\OneToMany(targetEntity: Topic::class, mappedBy: 'category')]
+    #[ORM\OneToMany(targetEntity: Topic::class, mappedBy: 'category', cascade: ['remove'])]
     #[ORM\OrderBy(['createdAt' => 'DESC'])]
     private Collection $topics;
 

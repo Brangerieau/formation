@@ -94,4 +94,40 @@ class ForumApiController extends AbstractController
 
         return $this->json($post, Response::HTTP_CREATED, context: ['groups' => ['post']]);
     }
+
+    #[Route('/categories/{id}', name: 'category_delete', methods: ['DELETE'])]
+    #[OA\Delete(summary: 'Supprimer définitivement une catégorie, avec tous ses sujets et leurs messages')]
+    #[OA\Response(response: 204, description: 'Catégorie supprimée')]
+    #[OA\Response(response: 404, description: 'Catégorie introuvable')]
+    public function deleteCategory(Category $category, EntityManagerInterface $em): Response
+    {
+        $em->remove($category);
+        $em->flush();
+
+        return new Response(status: Response::HTTP_NO_CONTENT);
+    }
+
+    #[Route('/topics/{id}', name: 'topic_delete', methods: ['DELETE'])]
+    #[OA\Delete(summary: 'Supprimer définitivement un sujet, avec tous ses messages')]
+    #[OA\Response(response: 204, description: 'Sujet supprimé')]
+    #[OA\Response(response: 404, description: 'Sujet introuvable')]
+    public function deleteTopic(Topic $topic, EntityManagerInterface $em): Response
+    {
+        $em->remove($topic);
+        $em->flush();
+
+        return new Response(status: Response::HTTP_NO_CONTENT);
+    }
+
+    #[Route('/posts/{id}', name: 'post_delete', methods: ['DELETE'])]
+    #[OA\Delete(summary: 'Supprimer définitivement un message')]
+    #[OA\Response(response: 204, description: 'Message supprimé')]
+    #[OA\Response(response: 404, description: 'Message introuvable')]
+    public function deletePost(Post $post, EntityManagerInterface $em): Response
+    {
+        $em->remove($post);
+        $em->flush();
+
+        return new Response(status: Response::HTTP_NO_CONTENT);
+    }
 }
