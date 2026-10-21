@@ -1,6 +1,6 @@
 # Documentation technique
 
-Forum de démonstration (catégories, sujets, messages) servi en HTML et en API REST, exposé comme serveur MCP et piloté par un assistant conversationnel branché sur un LLM local (Ollama).
+Forum de démonstration (catégories, sujets, messages) servi en HTML et en API REST, exposé comme serveur MCP et piloté par un assistant conversationnel branché sur un LLM local (Ollama). La documentation de `docs/` est indexée dans Qdrant pour une recherche sémantique (RAG).
 
 ## Sommaire
 
@@ -13,9 +13,10 @@ Forum de démonstration (catégories, sujets, messages) servi en HTML et en API 
 7. [API REST](#api-rest)
 8. [Serveur MCP](#serveur-mcp)
 9. [Assistant (chatbot)](#assistant-chatbot)
-10. [Logs et traçabilité](#logs-et-traçabilité)
-11. [Tests](#tests)
-12. [Limites connues](#limites-connues)
+10. [RAG sur la documentation](#rag-sur-la-documentation)
+11. [Logs et traçabilité](#logs-et-traçabilité)
+12. [Tests](#tests)
+13. [Limites connues](#limites-connues)
 
 ## Stack
 
@@ -28,6 +29,8 @@ Forum de démonstration (catégories, sujets, messages) servi en HTML et en API 
 | Documentation API | NelmioApiDocBundle (OpenAPI, Swagger UI) |
 | Serveur HTTP | FrankenPHP (Caddy), image `dunglas/frankenphp:1-php8.4-bookworm` |
 | LLM | Ollama `0.40.6`, modèle `qwen3:4b-instruct`, CPU uniquement |
+| Embeddings | Ollama, modèle `bge-m3` (multilingue, 1024 dimensions) |
+| Base vectorielle | Qdrant `v1.19.2` |
 | Tests | PHPUnit 13, `WebTestCase`, `MockHttpClient` |
 
 ## Architecture
@@ -35,6 +38,7 @@ Forum de démonstration (catégories, sujets, messages) servi en HTML et en API 
 ```
 src/
 ├── Chat/ChatBot.php                 Conversation avec le LLM, boucle d'appels d'outils, confirmation
+├── Command/                         app:rag:index, app:rag:search
 ├── Controller/
 │   ├── ForumController.php          Pages HTML du forum
 │   ├── Api/ForumApiController.php   API REST JSON (documentée OpenAPI)
@@ -47,6 +51,7 @@ src/
 ├── Dto/                             Payloads validés (#[MapRequestPayload])
 ├── Entity/                          Category, Topic, Post
 ├── Log/TraceId.php                  Identifiant de trace commun aux logs
+├── Rag/DocIndex.php                 Découpage, embedding et recherche de la documentation
 └── DataFixtures/AppFixtures.php     Jeu de données de démonstration
 ```
 
@@ -73,10 +78,10 @@ Points notables :
 Prérequis : Docker avec Compose, `make`.
 
 ```bash
-make install   # build, up, composer install, migrations, fixtures, téléchargement du modèle
+make install   # build, up, composer install, migrations, fixtures, téléchargement des modèles, indexation de docs/
 ```
 
-L'application est servie sur http://localhost:8090. Ollama est exposé sur le port `11434`.
+L'application est servie sur http://localhost:8090. Ollama est exposé sur le port `11434`, Qdrant sur le port `6333` (tableau de bord : http://localhost:6333/dashboard).
 
 | Cible | Effet |
 |---|---|
@@ -86,7 +91,8 @@ L'application est servie sur http://localhost:8090. Ollama est exposé sur le po
 | `make vendor` | `composer install` (exécuté avec l'UID de l'hôte : `vendor/` appartient au développeur) |
 | `make db-update` | Exécute les migrations en attente |
 | `make fixtures` | Recharge les données de démo (**vide la base**) |
-| `make llm-pull` | Télécharge le modèle Ollama dans le volume `ollama` (une seule fois) |
+| `make llm-pull` | Télécharge le modèle de chat et le modèle d'embedding dans le volume `ollama` (une seule fois) |
+| `make rag-index` | Réindexe `docs/` dans Qdrant (à relancer après chaque modification de la doc) |
 
 Le code n'est pas copié dans l'image : il est monté depuis l'hôte (`.:/app`). OPcache revalide les fichiers à chaque requête (`docker/app/php.dev.ini`). L'image est donc **une image de développement uniquement**.
 
@@ -107,11 +113,13 @@ Variables d'environnement (`.env`, à surcharger dans `.env.local`) :
 | `OLLAMA_URL` | `http://ollama:11434` | Ollama, vu depuis le conteneur `app` |
 | `OLLAMA_MODEL` | `qwen3:4b-instruct` | Modèle utilisé. Doit supporter le *tool calling* et être téléchargé (`make llm-pull OLLAMA_MODEL=...`). À garder synchronisé avec la variable du `Makefile` |
 | `MCP_URL` | `http://localhost:8080` | Serveur MCP joint par le chatbot, vu depuis le conteneur |
+| `OLLAMA_EMBEDDING_MODEL` | `bge-m3` | Modèle d'embedding du RAG. À garder synchronisé avec la variable du `Makefile`. En changer impose de réindexer |
+| `QDRANT_URL` | `http://qdrant:6333` | Qdrant, vu depuis le conteneur `app` |
 
 Autres réglages :
 
 - `config/services.yaml` : paramètre `app.chat.system_prompt`, le prompt système de l'assistant.
-- `config/packages/framework.yaml` : clients HTTP `ollama.client` (timeout 120 s, le modèle tourne sur CPU) et `mcp.client`. Ils sont injectés par nom d'argument (`$ollamaClient`, `$mcpClient`).
+- `config/packages/framework.yaml` : clients HTTP `ollama.client` (timeout 120 s, le modèle tourne sur CPU), `mcp.client` et `qdrant.client`. Ils sont injectés par nom d'argument (`$ollamaClient`, `$mcpClient`, `$qdrantClient`).
 - `compose.yaml` : `OLLAMA_KEEP_ALIVE=1h` garde le modèle en mémoire (le rechargement coûte environ 7 s sur le premier message après une pause).
 
 ## Modèle de données
@@ -293,6 +301,35 @@ Statuts affichés sur les cartes : `ok`, `erreur`, `à confirmer`, `non exécut�
 - Un appel au LLM en échec n'est pas enregistré : l'historique ne garde pas de message utilisateur sans réponse.
 - La fonction Twig `chat_transcript()` reconstruit l'affichage à partir de l'historique au rechargement d'une page ; elle ne démarre pas de session si aucune n'existe.
 
+## RAG sur la documentation
+
+Les fichiers `docs/*.md` sont indexés dans la collection Qdrant `docs` pour être retrouvés par sens et non par mots-clés. La base de données du forum n'est pas indexée.
+
+Pour l'instant, seules l'indexation et la recherche existent. L'exposition à l'assistant sous forme d'outil MCP est prévue dans un second temps : une route `GET /api/search` appelant `DocIndex::search()` suffira, car `ApiToolRegistry` transforme toute route de l'API en outil MCP.
+
+### Indexation
+
+```bash
+make rag-index   # ou : php bin/console app:rag:index
+```
+
+1. **Découpage** (`DocIndex::chunk()`) : un chunk par section de niveau 1 à 3. Les titres `####` et plus restent dans le texte de leur section. Les lignes `#` à l'intérieur d'un bloc de code ne sont pas des titres. Les sections sans texte sont ignorées.
+2. **Titre** : chaque chunk porte le chemin de ses titres, par exemple `Documentation technique > Serveur MCP > Suppressions par nom`. Ce chemin est placé en tête du texte embarqué pour donner son contexte à la section.
+3. **Embedding** : un appel par chunk à `POST /v1/embeddings` d'Ollama (API compatible OpenAI, comme le chatbot). Environ 30 s pour la doc actuelle sur CPU.
+4. **Écriture** : la collection est supprimée, recréée (distance cosinus, taille des vecteurs déduite du modèle) puis remplie. Les embeddings sont calculés avant la suppression : la collection n'est absente que le temps de ces trois appels.
+
+Payload de chaque point : `source` (nom du fichier), `title` (chemin des titres), `content` (texte de la section).
+
+L'index n'est jamais mis à jour automatiquement : il faut relancer la commande après chaque modification de `docs/` ou changement de modèle d'embedding.
+
+### Recherche
+
+```bash
+php bin/console app:rag:search "comment répondre à un sujet ?" --limit=3
+```
+
+`DocIndex::search($query, $limit)` embarque la question avec le même modèle et interroge `POST /collections/docs/points/query`. Elle renvoie les sections les plus proches, triées par score décroissant (similarité cosinus) : `source`, `title`, `content`, `score`.
+
 ## Logs et traçabilité
 
 Canaux Monolog dédiés : `chat` (ChatBot) et `mcp` (sous-requêtes API exécutées par les outils). En `dev`, ils sont écrits, avec les erreurs du canal `request`, dans `var/log/chat.log`, une ligne par étape :
@@ -315,8 +352,9 @@ docker compose exec --user=www-data app php bin/phpunit
 | `tests/Controller/McpControllerTest.php` | Handshake, liste des outils, annotations, appels, suppressions par nom, erreurs, contrôle de l'`Origin` |
 | `tests/Controller/ChatControllerTest.php` | Historique, flux SSE, boucle d'outils, confirmation et annulation, échec du LLM, arguments invalides |
 | `tests/Log/TraceIdTest.php` | Génération et propagation de l'identifiant de trace |
+| `tests/Command/RagCommandTest.php` | Découpage markdown, reconstruction de la collection, recherche |
 
-Le LLM et le serveur MCP sont simulés avec `MockHttpClient` dans `ChatControllerTest` : les tests ne nécessitent ni Ollama ni réseau.
+Le LLM, le serveur MCP, Ollama et Qdrant sont simulés avec `MockHttpClient` : les tests ne nécessitent ni Ollama, ni Qdrant, ni réseau.
 
 ## Limites connues
 
@@ -326,5 +364,7 @@ Le LLM et le serveur MCP sont simulés avec `MockHttpClient` dans `ChatControlle
 - `McpTools::findTopic()` fait un `GET` par catégorie à chaque recherche de sujet. À remplacer par une route de recherche dans l'API si le forum grossit.
 - `McpClient` ne fait ni handshake `initialize`, ni gestion de session, ni SSE : suffisant pour notre serveur, insuffisant pour un serveur MCP tiers.
 - `ApiToolRegistry::resolve()` inline les `$ref` récursivement : un schéma auto-référent bouclerait indéfiniment.
+- RAG : pendant une réindexation, la collection est absente quelques instants et une recherche concurrente échoue. Pour l'éviter : indexer dans une nouvelle collection puis basculer un alias Qdrant.
+- RAG : la section « Sommaire » de cette documentation est indexée comme les autres et peut remonter dans les résultats sans être utile.
 - Image Docker de développement uniquement (code monté, OPcache en revalidation, HTTP sans TLS).
 - Le modèle tourne sur CPU : une réponse peut prendre plusieurs dizaines de secondes.

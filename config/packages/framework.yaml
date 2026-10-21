@@ -13,6 +13,8 @@ framework:
                 timeout: 120
             mcp.client:
                 base_uri: '%env(MCP_URL)%'
+            qdrant.client:
+                base_uri: '%env(QDRANT_URL)%'
 
     #esi: true
     #fragments: true

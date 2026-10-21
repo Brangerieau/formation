@@ -7,6 +7,8 @@ COMPOSER			?= $(DOCKER_COMPOSE) exec --user=$(shell id -u):$(shell id -g) --env 
 
 # Must support tool calling to use the MCP server. Smaller/faster: make llm-pull OLLAMA_MODEL=qwen2.5:3b
 OLLAMA_MODEL		?= qwen3:4b-instruct
+# Multilingual: the docs are in French.
+OLLAMA_EMBEDDING_MODEL	?= bge-m3
 
 define main_title
 	@{ \
@@ -21,7 +23,7 @@ endef
 ##@ Project
 
 install: ## Build, start, install dependencies and load the demo data
-	make build up vendor db-update fixtures llm-pull
+	make build up vendor db-update fixtures llm-pull rag-index
 
 build: ## Build the image
 	$(call main_title,)
@@ -62,9 +64,16 @@ fixtures: ## Load the demo data (wipes the database)
 
 ##@ LLM
 
-llm-pull: ## Download the Ollama model (stored in the ollama volume, only once)
+llm-pull: ## Download the Ollama models (stored in the ollama volume, only once)
 	$(call main_title,)
 	$(DOCKER_COMPOSE) exec ollama ollama pull $(OLLAMA_MODEL)
+	$(DOCKER_COMPOSE) exec ollama ollama pull $(OLLAMA_EMBEDDING_MODEL)
+
+##@ RAG
+
+rag-index: ## Index docs/ in Qdrant (again after editing the docs)
+	$(call main_title,)
+	$(PHP) bin/console app:rag:index
 
 ##@ Utility
 
