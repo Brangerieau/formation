@@ -24,6 +24,7 @@ use Symfony\Component\Routing\Requirement\Requirement;
 class ForumApiController extends AbstractController
 {
     #[Route('/categories', name: 'category_list', methods: ['GET'])]
+    #[OA\Get(summary: 'Lister toutes les catégories du forum')]
     #[OA\Response(response: 200, description: 'Catégories triées par nom', content: new OA\JsonContent(type: 'array', items: new OA\Items(ref: new Model(type: Category::class, groups: ['category']))))]
     public function categories(EntityManagerInterface $em): JsonResponse
     {
@@ -31,6 +32,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/categories', name: 'category_create', methods: ['POST'])]
+    #[OA\Post(summary: 'Créer une catégorie')]
     #[OA\Response(response: 201, description: 'Catégorie créée', content: new Model(type: Category::class, groups: ['category']))]
     #[OA\Response(response: 422, description: 'Payload invalide')]
     public function createCategory(#[MapRequestPayload] CategoryInput $input, EntityManagerInterface $em): JsonResponse
@@ -43,6 +45,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/categories/{id}/topics', name: 'topic_list', methods: ['GET'])]
+    #[OA\Get(summary: "Lister les sujets d'une catégorie")]
     #[OA\Response(response: 200, description: 'Sujets de la catégorie, du plus récent au plus ancien', content: new OA\JsonContent(type: 'array', items: new OA\Items(ref: new Model(type: Topic::class, groups: ['topic']))))]
     #[OA\Response(response: 404, description: 'Catégorie introuvable')]
     public function topics(Category $category): JsonResponse
@@ -51,6 +54,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/categories/{id}/topics', name: 'topic_create', methods: ['POST'])]
+    #[OA\Post(summary: 'Créer un sujet dans une catégorie')]
     #[OA\Response(response: 201, description: 'Sujet créé', content: new Model(type: Topic::class, groups: ['topic']))]
     #[OA\Response(response: 404, description: 'Catégorie introuvable')]
     #[OA\Response(response: 422, description: 'Payload invalide')]
@@ -67,6 +71,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/topics/{id}', name: 'topic_show', methods: ['GET'])]
+    #[OA\Get(summary: 'Afficher un sujet avec tous ses messages')]
     #[OA\Response(response: 200, description: 'Sujet avec ses messages', content: new Model(type: Topic::class, groups: ['topic', 'topic:posts', 'post']))]
     #[OA\Response(response: 404, description: 'Sujet introuvable')]
     public function topic(Topic $topic): JsonResponse
@@ -75,6 +80,7 @@ class ForumApiController extends AbstractController
     }
 
     #[Route('/topics/{id}/posts', name: 'post_create', methods: ['POST'])]
+    #[OA\Post(summary: 'Répondre à un sujet en ajoutant un message')]
     #[OA\Response(response: 201, description: 'Message créé', content: new Model(type: Post::class, groups: ['post']))]
     #[OA\Response(response: 404, description: 'Sujet introuvable')]
     #[OA\Response(response: 422, description: 'Payload invalide')]
