@@ -2,10 +2,7 @@
 <details id="chat" class="chat" data-turbo-permanent data-controller="chat" data-chat-url-value="{{ path('chat') }}" data-chat-reset-url-value="{{ path('chat_reset') }}">
     <summary>Assistant</summary>
     <div class="chat-log" data-chat-target="log" aria-live="polite">
-        {#- Tool calls and results are kept for the LLM, not shown. #}
-        {%- for message in chat_history() | filter(m => m.role != 'tool' and m.tool_calls is not defined) %}
-            <p class="chat-msg chat-msg-{{ message.role }}">{{ message.content }}</p>
-        {%- endfor %}
+        {{- include('chat/_transcript.html.twig', {items: chat_transcript()}) }}
     </div>
     <form data-action="chat#send">
         <input type="text" data-chat-target="input" aria-label="Votre message" placeholder="Votre message" maxlength="2000" autocomplete="off" required>

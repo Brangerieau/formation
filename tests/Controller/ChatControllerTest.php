@@ -20,7 +20,8 @@ class ChatControllerTest extends WebTestCase
 
         $this->chat($client, 'Bonjour');
         self::assertResponseIsSuccessful();
-        self::assertSame(['reply' => 'Salut !'], json_decode($client->getResponse()->getContent(), true));
+        self::assertSelectorCount(1, '.chat-msg');
+        self::assertSelectorTextSame('.chat-msg-assistant', 'Salut !');
         self::assertStringEndsWith('/v1/chat/completions', $llmResponses[0]->getRequestUrl());
         self::assertSame([
             ['role' => 'system', 'content' => $systemPrompt],
@@ -71,7 +72,11 @@ class ChatControllerTest extends WebTestCase
         $client = $this->createChatClient($llmResponses);
 
         $this->chat($client, 'Liste les catégories');
-        self::assertSame(['reply' => 'Il y a une catégorie : Général.'], json_decode($client->getResponse()->getContent(), true));
+        self::assertSelectorTextSame('.chat-msg-assistant', 'Il y a une catégorie : Général.');
+        // The tool call is shown before the answer, with its readable label and result.
+        self::assertSame(['chat-tool chat-tool-ok', 'chat-msg chat-msg-assistant'], $client->getCrawler()->filter('.chat-tool, .chat-msg')->each(fn ($node) => $node->attr('class')));
+        self::assertSelectorTextSame('.chat-tool summary', 'Lister toutes les catégories du forum ok');
+        self::assertSelectorTextSame('.chat-tool pre', 'Résultat de get_api_category_list');
 
         // MCP tools are offered in the OpenAI format, a parameterless one keeping "properties": {}.
         $firstRequest = $llmResponses[0]->getRequestOptions()['body'];
@@ -92,6 +97,7 @@ class ChatControllerTest extends WebTestCase
         self::assertSame(['system', 'user', 'assistant', 'tool', 'assistant', 'user'], array_column($this->sentMessages($llmResponses[2]), 'role'));
         $client->request('GET', '/');
         self::assertSelectorCount(4, '#chat .chat-msg');
+        self::assertSelectorTextSame('#chat .chat-tool summary', 'Lister toutes les catégories du forum ok');
     }
 
     public function testOnlyTheFirstToolCallRuns(): void
@@ -105,6 +111,8 @@ class ChatControllerTest extends WebTestCase
         $this->chat($client, 'Crée les catégories A et B');
 
         self::assertSame([['name' => 'post_api_category_create', 'arguments' => ['name' => 'A']]], $this->mcpCalls);
+        self::assertSelectorTextSame('.chat-tool-ok summary', 'post_api_category_create (name: A) ok');
+        self::assertSelectorTextSame('.chat-tool-skipped summary', 'post_api_category_create (name: B) non exécuté');
         [, , , $first, $second] = $this->sentMessages($llmResponses[1]);
         self::assertSame('Résultat de post_api_category_create', $first['content']);
         self::assertSame('call_2', $second['tool_call_id']);
@@ -119,6 +127,7 @@ class ChatControllerTest extends WebTestCase
         $this->chat($client, 'Crée une catégorie');
 
         self::assertSame([], $this->mcpCalls);
+        self::assertSelectorTextSame('.chat-tool-error pre', 'Erreur : arguments JSON invalides.');
         self::assertSame('Erreur : arguments JSON invalides.', $this->sentMessages($llmResponses[1])[3]['content']);
     }
 

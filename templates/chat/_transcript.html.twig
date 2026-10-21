@@ -1,0 +1,13 @@
+{% for item in items %}
+    {% if item.type == 'tool' %}
+        <details class="chat-tool chat-tool-{{ item.status }}">
+            <summary>
+                {{ item.label }}{% if item.arguments %} <span class="chat-tool-args">({{ item.arguments }})</span>{% endif %}
+                <span class="chat-tool-status">{{ {ok: 'ok', error: 'erreur', skipped: 'non exécuté'}[item.status] }}</span>
+            </summary>
+            <pre>{{ item.result }}</pre>
+        </details>
+    {% else %}
+        <p class="chat-msg chat-msg-{{ item.role }}">{{ item.content }}</p>
+    {% endif %}
+{% endfor %}

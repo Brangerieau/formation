@@ -22,7 +22,9 @@ export default class extends Controller {
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
-            this.#append('assistant', (await response.json()).reply);
+            // Server-rendered with the same partial as the history: tool calls, then the answer.
+            this.logTarget.insertAdjacentHTML('beforeend', await response.text());
+            this.logTarget.scrollTop = this.logTarget.scrollHeight;
         } catch {
             this.#append('error', 'Erreur, réessayez.');
         }

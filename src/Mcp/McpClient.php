@@ -30,18 +30,19 @@ class McpClient
     }
 
     /**
-     * @return string the tool output, prefixed with "Erreur" when it failed so the model can tell
+     * @return array{text: string, isError: bool} protocol errors (unknown tool...) are reported as tool errors
      */
-    public function call(string $name, array $arguments): string
+    public function call(string $name, array $arguments): array
     {
         $response = $this->rpc('tools/call', ['name' => $name, 'arguments' => (object) $arguments]);
         if (isset($response['error'])) {
-            return 'Erreur : '.$response['error']['message'];
+            return ['text' => $response['error']['message'], 'isError' => true];
         }
 
-        $text = implode("\n", array_column($response['result']['content'], 'text'));
-
-        return ($response['result']['isError'] ?? false) ? 'Erreur : '.$text : $text;
+        return [
+            'text' => implode("\n", array_column($response['result']['content'], 'text')),
+            'isError' => $response['result']['isError'] ?? false,
+        ];
     }
 
     private function rpc(string $method, array $params = []): array
