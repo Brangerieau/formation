@@ -2,7 +2,7 @@ import { Controller } from '@hotwired/stimulus';
 
 export default class extends Controller {
     static targets = ['log', 'input'];
-    static values = { url: String };
+    static values = { url: String, resetUrl: String };
 
     async send(event) {
         event.preventDefault();
@@ -22,7 +22,19 @@ export default class extends Controller {
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
-            this.#append('bot', (await response.json()).reply);
+            this.#append('assistant', (await response.json()).reply);
+        } catch {
+            this.#append('error', 'Erreur, réessayez.');
+        }
+    }
+
+    async reset() {
+        try {
+            const response = await fetch(this.resetUrlValue, { method: 'POST' });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            this.logTarget.replaceChildren();
         } catch {
             this.#append('error', 'Erreur, réessayez.');
         }

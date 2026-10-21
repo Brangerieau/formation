@@ -1,9 +1,14 @@
-{# data-turbo-permanent keeps the conversation across Turbo page visits. #}
-<details id="chat" class="chat" data-turbo-permanent data-controller="chat" data-chat-url-value="{{ path('chat') }}">
+{# data-turbo-permanent keeps the conversation across Turbo page visits; a full reload re-renders it from the session. #}
+<details id="chat" class="chat" data-turbo-permanent data-controller="chat" data-chat-url-value="{{ path('chat') }}" data-chat-reset-url-value="{{ path('chat_reset') }}">
     <summary>Assistant</summary>
-    <div class="chat-log" data-chat-target="log" aria-live="polite"></div>
+    <div class="chat-log" data-chat-target="log" aria-live="polite">
+        {%- for message in chat_history() %}
+            <p class="chat-msg chat-msg-{{ message.role }}">{{ message.content }}</p>
+        {%- endfor %}
+    </div>
     <form data-action="chat#send">
         <input type="text" data-chat-target="input" aria-label="Votre message" placeholder="Votre message" maxlength="2000" autocomplete="off" required>
         <button>Envoyer</button>
+        <button type="button" data-action="chat#reset" title="Nouvelle conversation">Effacer</button>
     </form>
 </details>

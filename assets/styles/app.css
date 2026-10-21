@@ -355,7 +355,7 @@ button:hover {
     background: var(--accent-soft);
 }
 
-.chat-msg-bot {
+.chat-msg-assistant {
     margin-right: 2rem;
     background: var(--surface-alt);
 }
