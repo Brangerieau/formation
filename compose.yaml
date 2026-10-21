@@ -16,6 +16,9 @@ services:
   ollama:
     image: ollama/ollama:0.40.6
     container_name: formation-forum-ollama
+    environment:
+      # Default is 5 min: reloading the model from disk adds ~7 s to the first message after a pause.
+      OLLAMA_KEEP_ALIVE: 1h
     volumes:
       - ollama:/root/.ollama
     ports:
