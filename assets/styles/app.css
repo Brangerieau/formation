@@ -319,3 +319,54 @@ button:hover {
         display: none;
     }
 }
+
+.chat {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: min(360px, calc(100vw - 32px));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgb(0 0 0 / .15);
+}
+
+.chat summary {
+    padding: .75rem 1rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.chat-log {
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 0 1rem;
+}
+
+.chat-msg {
+    margin: .5rem 0;
+    padding: .5rem .75rem;
+    border-radius: 8px;
+    white-space: pre-wrap;
+}
+
+.chat-msg-user {
+    margin-left: 2rem;
+    background: var(--accent-soft);
+}
+
+.chat-msg-bot {
+    margin-right: 2rem;
+    background: var(--surface-alt);
+}
+
+.chat-msg-error {
+    color: var(--danger);
+}
+
+.chat form {
+    display: flex;
+    gap: .5rem;
+    padding: .75rem 1rem;
+    border-top: 1px solid var(--border);
+}

@@ -1,0 +1,9 @@
+{# data-turbo-permanent keeps the conversation across Turbo page visits. #}
+<details id="chat" class="chat" data-turbo-permanent data-controller="chat" data-chat-url-value="{{ path('chat') }}">
+    <summary>Assistant</summary>
+    <div class="chat-log" data-chat-target="log" aria-live="polite"></div>
+    <form data-action="chat#send">
+        <input type="text" data-chat-target="input" aria-label="Votre message" placeholder="Votre message" maxlength="2000" autocomplete="off" required>
+        <button>Envoyer</button>
+    </form>
+</details>
