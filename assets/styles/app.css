@@ -397,6 +397,32 @@ button:hover {
     margin: .25rem 0 .5rem;
 }
 
+.chat-tool-confirm button {
+    display: inline-flex;
+    padding: .3rem .5rem;
+}
+
+.chat-tool-confirm button {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+}
+
+.chat-tool-confirm .chat-tool-yes {
+    color: var(--accent);
+}
+
+.chat-tool-confirm .chat-tool-yes:hover {
+    border-color: var(--accent);
+}
+
+.chat-tool-confirm .chat-tool-no {
+    color: var(--danger);
+}
+
+.chat-tool-confirm .chat-tool-no:hover {
+    border-color: var(--danger);
+}
+
 .chat-tool pre {
     max-height: 12rem;
     overflow: auto;
