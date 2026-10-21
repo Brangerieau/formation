@@ -3,7 +3,7 @@
 namespace App\Controller;
 
 use App\Dto\JsonRpcRequest;
-use App\Mcp\ApiToolRegistry;
+use App\Mcp\McpTools;
 use Monolog\Attribute\WithMonologChannel;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -31,7 +31,7 @@ class McpController extends AbstractController
     }
 
     #[Route('/mcp', name: 'mcp', methods: ['POST'], format: 'json')]
-    public function handle(Request $request, #[MapRequestPayload] JsonRpcRequest $rpc, ApiToolRegistry $tools): Response
+    public function handle(Request $request, #[MapRequestPayload] JsonRpcRequest $rpc, McpTools $tools): Response
     {
         // Required by the spec to block DNS rebinding: refuse browser calls from another origin.
         $origin = $request->headers->get('Origin');
