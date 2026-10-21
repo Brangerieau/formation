@@ -4,8 +4,10 @@ namespace App\Tests\Controller;
 
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\JsonMockResponse;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 class ChatControllerTest extends WebTestCase
 {
@@ -17,15 +19,16 @@ class ChatControllerTest extends WebTestCase
 
     public function testConversationIsSentToTheLlmUntilReset(): void
     {
-        $llmResponses = [$this->llmReply('Salut !'), $this->llmReply('Rien de neuf.'), $this->llmReply('Re !')];
+        $llmResponses = [$this->llmReply('Sal', "ut\n", ' !'), $this->llmReply('Rien de neuf.'), $this->llmReply('Re !')];
         $client = $this->createChatClient($llmResponses);
         $systemPrompt = static::getContainer()->getParameter('app.chat.system_prompt');
 
-        $this->chat($client, 'Bonjour');
+        // The answer is passed on piece by piece, as the LLM writes it, a multi-line piece included.
+        self::assertSame([['delta', 'Sal'], ['delta', "ut\n"], ['delta', ' !'], ['done', '']], $this->chat($client, 'Bonjour'));
         self::assertResponseIsSuccessful();
-        self::assertSelectorCount(1, '.chat-msg');
-        self::assertSelectorTextSame('.chat-msg-assistant', 'Salut !');
+        self::assertStringStartsWith('text/event-stream', $client->getResponse()->headers->get('content-type'));
         self::assertStringEndsWith('/v1/chat/completions', $llmResponses[0]->getRequestUrl());
+        self::assertTrue(json_decode($llmResponses[0]->getRequestOptions()['body'], true)['stream']);
         self::assertSame([
             ['role' => 'system', 'content' => $systemPrompt],
             ['role' => 'user', 'content' => 'Bonjour'],
@@ -35,7 +38,7 @@ class ChatControllerTest extends WebTestCase
         self::assertSame([
             ['role' => 'system', 'content' => $systemPrompt],
             ['role' => 'user', 'content' => 'Bonjour'],
-            ['role' => 'assistant', 'content' => 'Salut !'],
+            ['role' => 'assistant', 'content' => "Salut\n !"],
             ['role' => 'user', 'content' => 'Quoi de neuf ?'],
         ], $this->sentMessages($llmResponses[1]));
 
@@ -58,8 +61,8 @@ class ChatControllerTest extends WebTestCase
         $llmResponses = [new JsonMockResponse([], ['http_code' => 500]), $this->llmReply('Salut !')];
         $client = $this->createChatClient($llmResponses);
 
-        $this->chat($client, 'Perdu');
-        self::assertResponseStatusCodeSame(500);
+        // The status is sent before the LLM is called: the failure comes as an event.
+        self::assertSame([['error', '']], $this->chat($client, 'Perdu'));
 
         $this->chat($client, 'Bonjour');
         self::assertSame(['system', 'user'], array_column($this->sentMessages($llmResponses[1]), 'role'));
@@ -74,12 +77,14 @@ class ChatControllerTest extends WebTestCase
         ];
         $client = $this->createChatClient($llmResponses);
 
-        $this->chat($client, 'Liste les catégories');
-        self::assertSelectorTextSame('.chat-msg-assistant', 'Il y a une catégorie : Général.');
+        $events = $this->chat($client, 'Liste les catégories');
         // The tool call is shown before the answer, with its readable label and result.
-        self::assertSame(['chat-tool chat-tool-ok', 'chat-msg chat-msg-assistant'], $client->getCrawler()->filter('.chat-tool, .chat-msg')->each(fn ($node) => $node->attr('class')));
-        self::assertSelectorTextSame('.chat-tool summary', 'Lister toutes les catégories du forum ok');
-        self::assertSelectorTextSame('.chat-tool pre', 'Résultat de get_api_category_list');
+        self::assertSame(['tool', 'delta', 'done'], array_column($events, 0));
+        self::assertSame('Il y a une catégorie : Général.', $events[1][1]);
+        $tool = new Crawler($events[0][1]);
+        self::assertSame('chat-tool chat-tool-ok', $tool->filter('details')->attr('class'));
+        self::assertSame('Lister toutes les catégories du forum ok', $tool->filter('summary')->text());
+        self::assertSame('Résultat de get_api_category_list', $tool->filter('pre')->text());
 
         // MCP tools are offered in the OpenAI format, a parameterless one keeping "properties": {}.
         $firstRequest = $llmResponses[0]->getRequestOptions()['body'];
@@ -115,11 +120,11 @@ class ChatControllerTest extends WebTestCase
         ];
         $client = $this->createChatClient($llmResponses);
 
-        $this->chat($client, 'Crée les catégories A et B');
+        $tools = new Crawler(implode('', array_column(\array_slice($this->chat($client, 'Crée les catégories A et B'), 0, 2), 1)));
 
         self::assertSame([['name' => 'post_api_category_create', 'arguments' => ['name' => 'A']]], $this->mcpCalls);
-        self::assertSelectorTextSame('.chat-tool-ok summary', 'post_api_category_create (name: A) ok');
-        self::assertSelectorTextSame('.chat-tool-skipped summary', 'post_api_category_create (name: B) non exécuté');
+        self::assertSame('post_api_category_create (name: A) ok', $tools->filter('.chat-tool-ok summary')->text());
+        self::assertSame('post_api_category_create (name: B) non exécuté', $tools->filter('.chat-tool-skipped summary')->text());
         [, , , $first, $second] = $this->sentMessages($llmResponses[1]);
         self::assertSame('Résultat de post_api_category_create', $first['content']);
         self::assertSame('call_2', $second['tool_call_id']);
@@ -131,10 +136,10 @@ class ChatControllerTest extends WebTestCase
         $llmResponses = [$this->llmToolCalls(['call_1' => ['post_api_category_create', '{oops']]), $this->llmReply('Désolé.')];
         $client = $this->createChatClient($llmResponses);
 
-        $this->chat($client, 'Crée une catégorie');
+        $tool = new Crawler($this->chat($client, 'Crée une catégorie')[0][1]);
 
         self::assertSame([], $this->mcpCalls);
-        self::assertSelectorTextSame('.chat-tool-error pre', 'Erreur : arguments JSON invalides.');
+        self::assertSame('Erreur : arguments JSON invalides.', $tool->filter('.chat-tool-error pre')->text());
         self::assertSame('Erreur : arguments JSON invalides.', $this->sentMessages($llmResponses[1])[3]['content']);
     }
 
@@ -148,7 +153,7 @@ class ChatControllerTest extends WebTestCase
     }
 
     /**
-     * @param list<JsonMockResponse> $llmResponses
+     * @param list<MockResponse> $llmResponses
      */
     private function createChatClient(array $llmResponses): KernelBrowser
     {
@@ -175,30 +180,57 @@ class ChatControllerTest extends WebTestCase
         return $client;
     }
 
-    private function chat(KernelBrowser $client, string $message): void
+    /**
+     * @return list<array{string, string}> the server-sent events, as [type, data]
+     */
+    private function chat(KernelBrowser $client, string $message): array
     {
         $client->request('POST', '/chat', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(['message' => $message]));
+
+        $events = [];
+        foreach (explode("\n\n", trim($client->getInternalResponse()->getContent(), "\n")) as $block) {
+            preg_match('/^event: (.*)$/m', $block, $type);
+            preg_match_all('/^data: (.*)$/m', $block, $data);
+            $events[] = [$type[1], implode("\n", $data[1])];
+        }
+
+        return $events;
     }
 
-    private function llmReply(string $content): JsonMockResponse
+    /**
+     * @param list<array> $deltas
+     */
+    private function llmStream(array $deltas): MockResponse
     {
-        return new JsonMockResponse(['choices' => [['message' => ['role' => 'assistant', 'content' => $content]]]]);
+        $body = array_map(fn (array $delta) => 'data: '.json_encode(['choices' => [['index' => 0, 'delta' => $delta]]])."\n\n", $deltas);
+
+        // Split mid-line: an event can arrive across network chunks.
+        return new MockResponse([...str_split(implode('', $body), 50), "data: [DONE]\n\n"], ['response_headers' => ['content-type' => 'text/event-stream']]);
+    }
+
+    private function llmReply(string ...$pieces): MockResponse
+    {
+        return $this->llmStream(array_map(fn (string $piece) => ['content' => $piece], $pieces));
     }
 
     /**
      * @param array<string, array{string, string}> $calls tool call id => [tool name, JSON arguments]
      */
-    private function llmToolCalls(array $calls): JsonMockResponse
+    private function llmToolCalls(array $calls): MockResponse
     {
-        $toolCalls = [];
-        foreach ($calls as $id => [$name, $arguments]) {
-            $toolCalls[] = ['id' => $id, 'type' => 'function', 'function' => ['name' => $name, 'arguments' => $arguments]];
+        $deltas = [];
+        foreach (array_keys($calls) as $index => $id) {
+            [$name, $arguments] = $calls[$id];
+            // Ollama sends a whole call at once; the format allows the arguments to come in pieces.
+            [$start, $end] = str_split($arguments, (int) ceil(\strlen($arguments) / 2)) + [1 => ''];
+            $deltas[] = ['tool_calls' => [['index' => $index, 'id' => $id, 'type' => 'function', 'function' => ['name' => $name, 'arguments' => $start]]]];
+            $deltas[] = ['tool_calls' => [['index' => $index, 'function' => ['arguments' => $end]]]];
         }
 
-        return new JsonMockResponse(['choices' => [['message' => ['role' => 'assistant', 'content' => '', 'tool_calls' => $toolCalls]]]]);
+        return $this->llmStream($deltas);
     }
 
-    private function sentMessages(JsonMockResponse $response): array
+    private function sentMessages(MockResponse $response): array
     {
         return json_decode($response->getRequestOptions()['body'], true)['messages'];
     }
