@@ -12,6 +12,9 @@ class ChatControllerTest extends WebTestCase
     /** @var list<array{name: string, arguments: array}> tools/call requests received by the mocked MCP server */
     private array $mcpCalls = [];
 
+    /** @var list<string> X-Trace-Id header of each request to the mocked MCP server */
+    private array $mcpTraceIds = [];
+
     public function testConversationIsSentToTheLlmUntilReset(): void
     {
         $llmResponses = [$this->llmReply('Salut !'), $this->llmReply('Rien de neuf.'), $this->llmReply('Re !')];
@@ -87,6 +90,10 @@ class ChatControllerTest extends WebTestCase
         ]]], json_decode($firstRequest, true)['tools']);
         self::assertStringContainsString('"properties":{}', $firstRequest);
         self::assertSame([['name' => 'get_api_category_list', 'arguments' => []]], $this->mcpCalls);
+        // tools/list and tools/call carry the trace id of this /chat request, so both sides log under it.
+        self::assertCount(2, $this->mcpTraceIds);
+        self::assertMatchesRegularExpression('/^X-Trace-Id: [0-9a-f]{8}$/', $this->mcpTraceIds[0]);
+        self::assertSame($this->mcpTraceIds[0], $this->mcpTraceIds[1]);
 
         $secondRequest = json_decode($llmResponses[1]->getRequestOptions()['body'], true);
         self::assertArrayNotHasKey('tools', $secondRequest);
@@ -151,6 +158,7 @@ class ChatControllerTest extends WebTestCase
         static::getContainer()->set('ollama.client', new MockHttpClient($llmResponses));
         static::getContainer()->set('mcp.client', new MockHttpClient(function (string $method, string $url, array $options) {
             $rpc = json_decode($options['body'], true);
+            $this->mcpTraceIds[] = $options['normalized_headers']['x-trace-id'][0] ?? '';
             if ('tools/call' === $rpc['method']) {
                 $this->mcpCalls[] = $rpc['params'];
 

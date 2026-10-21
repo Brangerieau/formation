@@ -3,6 +3,8 @@
 namespace App\Chat;
 
 use App\Mcp\McpClient;
+use Monolog\Attribute\WithMonologChannel;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -13,6 +15,7 @@ use Twig\Attribute\AsTwigFunction;
  * The conversation, tool calls included, is kept in the session and sent back in full on each message.
  * The LLM may run one MCP tool per user message, then has to answer in text.
  */
+#[WithMonologChannel('chat')]
 class ChatBot
 {
     private const string HISTORY_KEY = 'chat_history';
@@ -22,6 +25,7 @@ class ChatBot
         private HttpClientInterface $ollamaClient,
         private McpClient $mcp,
         private RequestStack $requestStack,
+        private LoggerInterface $logger,
         #[Autowire(env: 'OLLAMA_MODEL')]
         private string $model,
         #[Autowire(param: 'app.chat.system_prompt')]
@@ -34,6 +38,8 @@ class ChatBot
      */
     public function reply(string $message): array
     {
+        $start = microtime(true);
+        $this->logger->info('Message reçu', ['message' => $message]);
         $history = [...$this->history(), ['role' => 'user', 'content' => $message]];
         $turnStart = \count($history);
 
@@ -58,6 +64,7 @@ class ChatBot
         // Saved only on success: a failed call leaves no unanswered message in the history.
         $history[] = ['role' => 'assistant', 'content' => $answer['content']];
         $this->requestStack->getSession()->set(self::HISTORY_KEY, $history);
+        $this->logger->info('Réponse envoyée', ['reply' => $answer['content'], 'total_ms' => (int) ((microtime(true) - $start) * 1000)]);
 
         return $this->transcript(\array_slice($history, $turnStart));
     }
@@ -106,15 +113,29 @@ class ChatBot
      */
     private function complete(array $history, array $tools = []): array
     {
-        $response = $this->ollamaClient->request('POST', '/v1/chat/completions', ['json' => [
+        $body = [
             'model' => $this->model,
             'messages' => [
                 ['role' => 'system', 'content' => $this->systemPrompt],
                 ...array_map(fn (array $message) => array_diff_key($message, ['display' => true]), $history),
             ],
-        ] + ($tools ? ['tools' => $tools] : [])]);
+        ] + ($tools ? ['tools' => $tools] : []);
+        $this->logger->info('Appel LLM', ['messages' => \count($body['messages']), 'tools' => \count($tools)]);
+        $this->logger->debug('Requête LLM', ['body' => $body]);
 
-        return $response->toArray()['choices'][0]['message'];
+        $response = $this->ollamaClient->request('POST', '/v1/chat/completions', ['json' => $body]);
+        $data = $response->toArray();
+        $message = $data['choices'][0]['message'];
+
+        $this->logger->info('Réponse LLM', [
+            'ms' => (int) ($response->getInfo('total_time') * 1000),
+            'tokens' => $data['usage'] ?? null,
+            'tool_calls' => array_map(fn (array $toolCall) => $toolCall['function']['name'].' '.$toolCall['function']['arguments'], $message['tool_calls'] ?? []),
+            'content' => $message['content'] ?? '',
+        ]);
+        $this->logger->debug('Réponse LLM brute', ['body' => $data]);
+
+        return $message;
     }
 
     /**
@@ -133,14 +154,19 @@ class ChatBot
             $result = ['text' => 'arguments JSON invalides.', 'isError' => true];
         }
 
+        $content = match (true) {
+            null === $result => self::SKIPPED_TOOL_CALL,
+            $result['isError'] => 'Erreur : '.$result['text'],
+            default => $result['text'],
+        };
+        $status = null === $result ? 'skipped' : ($result['isError'] ? 'error' : 'ok');
+        $this->logger->info('Résultat tool', ['tool' => $name, 'arguments' => $arguments, 'status' => $status, 'bytes' => \strlen($content)]);
+        $this->logger->debug('Contenu du résultat tool', ['tool' => $name, 'content' => $content]);
+
         return [
             'role' => 'tool',
             'tool_call_id' => $toolCall['id'],
-            'content' => match (true) {
-                null === $result => self::SKIPPED_TOOL_CALL,
-                $result['isError'] => 'Erreur : '.$result['text'],
-                default => $result['text'],
-            },
+            'content' => $content,
             'display' => [
                 'label' => $labels[$name] ?? $name,
                 'arguments' => implode(', ', array_map(
@@ -148,7 +174,7 @@ class ChatBot
                     array_keys($arguments),
                     $arguments,
                 )),
-                'status' => null === $result ? 'skipped' : ($result['isError'] ? 'error' : 'ok'),
+                'status' => $status,
             ],
         ];
     }

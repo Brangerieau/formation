@@ -2,6 +2,7 @@
 
 namespace App\Mcp;
 
+use App\Log\TraceId;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
@@ -13,6 +14,7 @@ class McpClient
 {
     public function __construct(
         private HttpClientInterface $mcpClient,
+        private TraceId $traceId,
     ) {
     }
 
@@ -47,11 +49,14 @@ class McpClient
 
     private function rpc(string $method, array $params = []): array
     {
-        return $this->mcpClient->request('POST', '/mcp', ['json' => [
-            'jsonrpc' => '2.0',
-            'id' => 1,
-            'method' => $method,
-            'params' => (object) $params,
-        ]])->toArray();
+        return $this->mcpClient->request('POST', '/mcp', [
+            'headers' => [TraceId::HEADER => $this->traceId->get()],
+            'json' => [
+                'jsonrpc' => '2.0',
+                'id' => 1,
+                'method' => $method,
+                'params' => (object) $params,
+            ],
+        ])->toArray();
     }
 }

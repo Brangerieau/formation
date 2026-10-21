@@ -1,6 +1,8 @@
 monolog:
     channels: # To see all channels, run bin/console debug:autowiring logger
         - deprecation # Deprecations are logged in the dedicated "deprecation" channel when it exists
+        - chat # ChatBot: user message -> LLM -> tools -> answer
+        - mcp # MCP server: JSON-RPC calls and the API sub-requests they run
 
 when@dev:
     monolog:
@@ -14,6 +16,17 @@ when@dev:
                 type: console
                 process_psr_3_messages: false
                 channels: ["!event", "!doctrine", "!console"]
+            # Follow a message end to end: tail -f var/log/chat.log. Set level: info to drop the full payloads.
+            chat:
+                type: stream
+                path: "%kernel.logs_dir%/chat.log"
+                level: debug
+                channels: ["chat", "mcp"]
+            chat_errors:
+                type: stream
+                path: "%kernel.logs_dir%/chat.log"
+                level: error
+                channels: ["request"]
 
 when@test:
     monolog:
