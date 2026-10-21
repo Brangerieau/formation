@@ -440,3 +440,25 @@ button:hover {
     padding: .75rem 1rem;
     border-top: 1px solid var(--border);
 }
+
+.chat form input {
+    flex: 1;
+    min-width: 0;
+}
+
+.chat form button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 .6rem;
+}
+
+.chat form .chat-reset {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    color: var(--muted);
+}
+
+.chat form .chat-reset:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
